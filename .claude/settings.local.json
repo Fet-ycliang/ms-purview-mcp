@@ -1,8 +1,4 @@
 {
-  "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "purview"
-  ],
   "permissions": {
     "allow": [
       "mcp__purview__search_data_assets",
@@ -13,7 +9,15 @@
       "mcp__purview__sync_unity_catalog",
       "mcp__purview__get_table_schema",
       "mcp__purview__get_table_details",
-      "mcp__purview__find_tables_by_column"
+      "mcp__purview__find_tables_by_column",
+      "mcp__purview__clear_cache",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git commit *)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "purview"
+  ]
 }
