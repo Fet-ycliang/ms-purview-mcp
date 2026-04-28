@@ -34,6 +34,8 @@ class AssetResult(BaseModel):
     guid: Optional[str] = None
     description: Optional[str] = None
     labels: list[str] = []
+    owner: Optional[str] = None
+    experts: list[str] = []
     extra: dict[str, Any] = {}
 
 

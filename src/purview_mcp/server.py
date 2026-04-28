@@ -43,6 +43,10 @@ async def search_data_assets(
         lines.append(f"  qualified_name: {r.qualified_name}")
         if r.description:
             lines.append(f"  說明: {r.description}")
+        if r.owner:
+            lines.append(f"  擁有者: {r.owner}")
+        if r.experts:
+            lines.append(f"  專家: {', '.join(r.experts)}")
         if r.labels:
             lines.append(f"  標籤: {', '.join(r.labels)}")
         lines.append("")

@@ -5,7 +5,12 @@
   ],
   "permissions": {
     "allow": [
-      "mcp__purview__search_data_assets"
+      "mcp__purview__search_data_assets",
+      "mcp__purview__check_pii_labels",
+      "mcp__purview__get_data_lineage",
+      "mcp__purview__check_field_compliance",
+      "mcp__purview__list_glossary_terms",
+      "mcp__purview__sync_unity_catalog"
     ]
   }
 }

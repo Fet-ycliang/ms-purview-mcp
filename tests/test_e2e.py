@@ -177,6 +177,8 @@ class TestModels:
         assert a.labels == []
         assert a.description is None
         assert a.guid is None
+        assert a.owner is None
+        assert a.experts == []
 
     def test_uc_table_info_alias(self):
         """TC-06c: UCTableInfo 接受 'schema' alias"""

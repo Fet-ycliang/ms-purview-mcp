@@ -38,6 +38,9 @@ async def search_assets(
 
 def _to_asset(item: dict) -> AssetResult:
     attrs = item.get("attributes", {})
+    contacts: list[dict] = item.get("contact", [])
+    owners = [c.get("id", "") for c in contacts if c.get("contactType") == "Owner" and c.get("id")]
+    experts = [c.get("id", "") for c in contacts if c.get("contactType") == "Expert" and c.get("id")]
     return AssetResult(
         name=item.get("name") or attrs.get("name", ""),
         qualified_name=item.get("qualifiedName") or attrs.get("qualifiedName", ""),
@@ -45,4 +48,6 @@ def _to_asset(item: dict) -> AssetResult:
         guid=item.get("id"),
         description=item.get("description") or attrs.get("description"),
         labels=item.get("label", []),
+        owner=owners[0] if owners else None,
+        experts=experts,
     )
