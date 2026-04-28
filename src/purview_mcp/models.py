@@ -67,6 +67,17 @@ class SensitivityLabel(BaseModel):
     is_pii: bool = False
 
 
+class ColumnDef(BaseModel):
+    """Purview 端的欄位定義（從 databricks_table_column entity 解析）。"""
+    name: str
+    data_type: Optional[str] = None
+    description: Optional[str] = None
+    is_nullable: Optional[bool] = None
+    ordinal_position: Optional[int] = None
+    comment: Optional[str] = None
+    guid: Optional[str] = None
+
+
 class UCColumnInfo(BaseModel):
     name: str
     type_text: Optional[str] = None

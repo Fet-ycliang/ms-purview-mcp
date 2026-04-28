@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from .models import Settings
-from .skills import discovery, glossary, lineage, policy, uc_sync
+from .skills import discovery, glossary, lineage, policy, schema, uc_sync
 
 mcp = FastMCP("Purview", instructions=(
     "提供 Microsoft Purview 資料治理工具，整合 Databricks Unity Catalog。"
@@ -18,6 +19,12 @@ mcp = FastMCP("Purview", instructions=(
 @lru_cache(maxsize=1)
 def _settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+def _fmt_ts(ts_ms: int | None) -> str:
+    if not ts_ms:
+        return "未知"
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
 @mcp.tool()
@@ -182,6 +189,91 @@ async def sync_unity_catalog(
         f"資料表清單：{', '.join(tables[:10])}"
         + (f"... 等共 {len(tables)} 張" if len(tables) > 10 else "")
     )
+
+
+@mcp.tool()
+async def get_table_schema(
+    qualified_name: str,
+    entity_type: str = "databricks_table",
+) -> str:
+    """
+    取回資料表的完整欄位定義（結構描述）。
+
+    - qualified_name: Purview 中的唯一識別名稱
+    - entity_type: 資產類型，預設 'databricks_table'
+    """
+    columns = await schema.get_table_schema(_settings(), qualified_name, entity_type)
+    if not columns:
+        return f"找不到 `{qualified_name}` 的欄位定義，或該資料表無欄位資料。"
+
+    lines = [f"**欄位定義：** `{qualified_name}`\n", f"共 {len(columns)} 個欄位：\n"]
+    lines.append("| # | 欄位名稱 | 型別 | 可空值 | 說明 |")
+    lines.append("|---|----------|------|--------|------|")
+    for i, col in enumerate(columns, start=1):
+        dtype = col.data_type or "-"
+        nullable = "✓" if col.is_nullable else ("✗" if col.is_nullable is not None else "-")
+        desc = col.description or col.comment or ""
+        lines.append(f"| {i} | `{col.name}` | {dtype} | {nullable} | {desc} |")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_table_details(
+    qualified_name: str,
+    entity_type: str = "databricks_table",
+) -> str:
+    """
+    取回資料表的完整屬性，包含 lastAltered、createdAt、擁有者、description、comment。
+
+    - qualified_name: Purview 中的唯一識別名稱
+    - entity_type: 資產類型，預設 'databricks_table'
+    """
+    details = await schema.get_table_details(_settings(), qualified_name, entity_type)
+    lines = [f"**資料表詳情：** `{details['name']}`\n"]
+    lines.append(f"- **Catalog / Schema：** {details.get('catalog_name', '-')} / {details.get('schema_name', '-')}")
+    lines.append(f"- **表類型：** {details.get('table_type', '-')}")
+    lines.append(f"- **說明：** {details.get('description') or details.get('comment') or '（無）'}")
+    lines.append(f"- **擁有者：** {details.get('owner') or '未設定'}")
+    if details.get('experts'):
+        lines.append(f"- **專家：** {', '.join(details['experts'])}")
+    lines.append(f"- **最後修改：** {_fmt_ts(details.get('last_altered'))}")
+    lines.append(f"- **最後修改者：** {details.get('last_altered_by') or '未知'}")
+    lines.append(f"- **建立時間：** {_fmt_ts(details.get('created_at'))}")
+    lines.append(f"- **建立者：** {details.get('created_by') or '未知'}")
+    if details.get('tags'):
+        lines.append(f"- **標籤：** {', '.join(details['tags'])}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def find_tables_by_column(
+    column_name: str,
+    catalog: Optional[str] = None,
+    schema_name: Optional[str] = None,
+) -> str:
+    """
+    從 Databricks Unity Catalog 搜尋含有指定欄位名稱的資料表。
+    支援部分比對（欄位名稱包含 column_name 即符合）。
+
+    - column_name: 要搜尋的欄位名稱（或部分名稱）
+    - catalog: 限定 catalog（預設搜尋 uc_catalogs 所有 catalog）
+    - schema_name: 限定 schema（選填）
+
+    注意：此工具直接掃描 Databricks UC，範圍大時需要較長時間。
+    """
+    matches = await schema.find_tables_by_column(_settings(), column_name, catalog, schema_name)
+    if not matches:
+        return f"在指定範圍內找不到含有欄位 `{column_name}` 的資料表。"
+
+    lines = [f"**含有欄位 `{column_name}` 的資料表（共 {len(matches)} 張）：**\n"]
+    for m in matches:
+        lines.append(f"**{m['catalog']}.{m['schema']}.{m['table_name']}**")
+        if m.get('comment'):
+            lines.append(f"  說明：{m['comment']}")
+        for col in m['matching_columns']:
+            lines.append(f"  - `{col['name']}` ({col['type'] or '未知型別'})")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> None:

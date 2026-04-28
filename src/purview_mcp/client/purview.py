@@ -88,6 +88,15 @@ class PurviewClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def get_entities_bulk(self, guids: list[str]) -> dict[str, Any]:
+        """一次取回多個 entity（用於批量查欄位定義）。"""
+        url = f"{self._base}/datamap/api/atlas/v2/entity/bulk"
+        params = [("guid", g) for g in guids]
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            resp.raise_for_status()
+            return resp.json()
+
     async def upsert_entity(self, entity_payload: dict[str, Any]) -> dict[str, Any]:
         """建立或更新 Purview entity（用於 UC 同步）。"""
         url = f"{self._base}/datamap/api/atlas/v2/entity/bulk"

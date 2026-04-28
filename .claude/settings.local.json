@@ -10,7 +10,10 @@
       "mcp__purview__get_data_lineage",
       "mcp__purview__check_field_compliance",
       "mcp__purview__list_glossary_terms",
-      "mcp__purview__sync_unity_catalog"
+      "mcp__purview__sync_unity_catalog",
+      "mcp__purview__get_table_schema",
+      "mcp__purview__get_table_details",
+      "mcp__purview__find_tables_by_column"
     ]
   }
 }
