@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
-from ..client.purview import PurviewClient
+from ..client.purview import get_purview_client
 from ..models import Settings, UCColumnInfo, UCTableInfo
 
 
@@ -83,7 +83,7 @@ async def sync_uc_to_purview(
     if dry_run:
         return {"dry_run": True, "count": len(entities), "entities": entities}
 
-    purview = PurviewClient(settings)
+    purview = get_purview_client(settings)
     payload = {"entities": entities}
     result = await purview.upsert_entity(payload)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..client.purview import PurviewClient
+from ..client.purview import get_purview_client
 from ..models import GlossaryTerm, Settings
 
 
@@ -9,7 +9,7 @@ async def list_terms(
     keyword: str = "",
 ) -> list[GlossaryTerm]:
     """列出企業詞彙表，支援關鍵字過濾。"""
-    client = PurviewClient(settings)
+    client = get_purview_client(settings)
 
     glossaries = await client.get_glossary()
     if not glossaries:

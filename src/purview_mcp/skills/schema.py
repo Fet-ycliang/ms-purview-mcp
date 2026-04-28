@@ -4,7 +4,7 @@ from typing import Any
 
 from databricks.sdk import WorkspaceClient
 
-from ..client.purview import PurviewClient
+from ..client.purview import get_purview_client
 from ..models import AssetResult, ColumnDef, Settings
 from .uc_sync import _build_databricks_client
 
@@ -15,7 +15,7 @@ async def get_table_schema(
     entity_type: str = "databricks_table",
 ) -> list[ColumnDef]:
     """從 Purview 取回資料表的完整欄位定義（結構描述）。"""
-    client = PurviewClient(settings)
+    client = get_purview_client(settings)
 
     entity_data = await client.get_entity_by_qualified_name(qualified_name, entity_type)
     entity = entity_data.get("entity", {})
@@ -59,7 +59,7 @@ async def get_table_details(
     entity_type: str = "databricks_table",
 ) -> dict[str, Any]:
     """取回資料表的完整屬性，包含 lastAltered、createdAt、owner、description 等。"""
-    client = PurviewClient(settings)
+    client = get_purview_client(settings)
     entity_data = await client.get_entity_by_qualified_name(qualified_name, entity_type)
     entity = entity_data.get("entity", {})
     attrs = entity.get("attributes", {})

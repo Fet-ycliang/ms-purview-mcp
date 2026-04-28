@@ -72,6 +72,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cachetools"
+version = "7.0.6"
+source = { registry = "https://nexus01p.fareastone.com.tw:8081/repository/pypi-proxy/simple" }
+sdist = { url = "https://nexus01p.fareastone.com.tw:8081/repository/pypi-proxy/packages/cachetools/7.0.6/cachetools-7.0.6.tar.gz", hash = "sha256:e5d524d36d65703a87243a26ff08ad84f73352adbeafb1cde81e207b456aaf24" }
+wheels = [
+    { url = "https://nexus01p.fareastone.com.tw:8081/repository/pypi-proxy/packages/cachetools/7.0.6/cachetools-7.0.6-py3-none-any.whl", hash = "sha256:4e94956cfdd3086f12042cdd29318f5ced3893014f7d0d059bf3ead3f85b7f8b" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.4.22"
 source = { registry = "https://nexus01p.fareastone.com.tw:8081/repository/pypi-proxy/simple" }
@@ -554,6 +563,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "azure-identity" },
+    { name = "cachetools" },
     { name = "databricks-sdk" },
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
@@ -572,6 +582,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "azure-identity", specifier = ">=1.16" },
+    { name = "cachetools", specifier = ">=5.3" },
     { name = "databricks-sdk", specifier = ">=0.20" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0" },

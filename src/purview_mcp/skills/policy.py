@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..client.purview import PurviewClient
+from ..client.purview import get_purview_client
 from ..models import SensitivityLabel, Settings
 
 _PII_LABEL_KEYWORDS = {"pii", "personal", "sensitive", "confidential", "gdpr", "個人"}
@@ -12,7 +12,7 @@ async def get_sensitivity_labels(
     entity_type: str = "databricks_table",
 ) -> list[SensitivityLabel]:
     """取得資料集的敏感度標籤。"""
-    client = PurviewClient(settings)
+    client = get_purview_client(settings)
 
     entity_data = await client.get_entity_by_qualified_name(qualified_name, entity_type)
     entity = entity_data.get("entity", {})

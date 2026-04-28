@@ -5,9 +5,21 @@ Unit tests：使用 mock 取代真實 API，可在無憑證環境執行。
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from purview_mcp.cache import reset_cache_manager
+from purview_mcp.client.purview import reset_purview_client
 from purview_mcp.models import Settings, UCColumnInfo, UCTableInfo
 from purview_mcp.skills import lineage, policy, uc_sync
 from purview_mcp.skills.uc_sync import _uc_table_to_atlas_entity
+
+
+@pytest.fixture(autouse=True)
+def _reset_singletons():
+    """每個 test 前重置 cache 與 client singleton，避免交互污染。"""
+    reset_cache_manager()
+    reset_purview_client()
+    yield
+    reset_cache_manager()
+    reset_purview_client()
 
 
 @pytest.fixture
@@ -45,7 +57,7 @@ class TestLineageUnit:
                 },
             },
         }
-        with patch("purview_mcp.skills.lineage.PurviewClient") as MockClient:
+        with patch("purview_mcp.skills.lineage.get_purview_client") as MockClient:
             client = MockClient.return_value
             client.get_entity_by_qualified_name = AsyncMock(return_value=mock_entity)
             client.get_lineage = AsyncMock(return_value=mock_lineage)
@@ -62,7 +74,7 @@ class TestLineageUnit:
     @pytest.mark.asyncio
     async def test_no_relations(self, settings):
         """UT-01b: 無血緣關係時回傳空清單"""
-        with patch("purview_mcp.skills.lineage.PurviewClient") as MockClient:
+        with patch("purview_mcp.skills.lineage.get_purview_client") as MockClient:
             client = MockClient.return_value
             client.get_entity_by_qualified_name = AsyncMock(return_value={"entity": {"guid": "g1"}})
             client.get_lineage = AsyncMock(return_value={"relations": [], "guidEntityMap": {}})
@@ -75,7 +87,7 @@ class TestLineageUnit:
     @pytest.mark.asyncio
     async def test_direction_both_forwarded(self, settings):
         """UT-01c: direction 參數正確傳遞給 client"""
-        with patch("purview_mcp.skills.lineage.PurviewClient") as MockClient:
+        with patch("purview_mcp.skills.lineage.get_purview_client") as MockClient:
             client = MockClient.return_value
             client.get_entity_by_qualified_name = AsyncMock(return_value={"entity": {"guid": "g1"}})
             client.get_lineage = AsyncMock(return_value={"relations": [], "guidEntityMap": {}})
@@ -103,7 +115,7 @@ class TestPolicyUnit:
     @pytest.mark.asyncio
     async def test_has_pii_true(self, settings):
         """UT-02c: 含 PII 標籤時 has_pii 回傳 True"""
-        with patch("purview_mcp.skills.policy.PurviewClient") as MockClient:
+        with patch("purview_mcp.skills.policy.get_purview_client") as MockClient:
             client = MockClient.return_value
             client.get_entity_by_qualified_name = AsyncMock(return_value={
                 "entity": {"classifications": [{"typeName": "PII_SensitiveData"}]}
@@ -113,7 +125,7 @@ class TestPolicyUnit:
     @pytest.mark.asyncio
     async def test_has_pii_false(self, settings):
         """UT-02d: 無 PII 標籤時 has_pii 回傳 False"""
-        with patch("purview_mcp.skills.policy.PurviewClient") as MockClient:
+        with patch("purview_mcp.skills.policy.get_purview_client") as MockClient:
             client = MockClient.return_value
             client.get_entity_by_qualified_name = AsyncMock(return_value={
                 "entity": {"classifications": [{"typeName": "PublicData"}]}
@@ -123,7 +135,7 @@ class TestPolicyUnit:
     @pytest.mark.asyncio
     async def test_empty_classifications(self, settings):
         """UT-02e: 無任何標籤時回傳空清單"""
-        with patch("purview_mcp.skills.policy.PurviewClient") as MockClient:
+        with patch("purview_mcp.skills.policy.get_purview_client") as MockClient:
             client = MockClient.return_value
             client.get_entity_by_qualified_name = AsyncMock(return_value={"entity": {}})
             labels = await policy.get_sensitivity_labels(settings, "qn")
@@ -171,7 +183,7 @@ class TestUCSyncUnit:
             UCTableInfo(catalog="prod_catalog", schema="pstage", table_name="t2"),
         ]
         with patch("purview_mcp.skills.uc_sync.list_uc_tables", new=AsyncMock(return_value=mock_tables)), \
-             patch("purview_mcp.skills.uc_sync.PurviewClient") as MockPurview:
+             patch("purview_mcp.skills.uc_sync.get_purview_client") as MockPurview:
 
             result = await uc_sync.sync_uc_to_purview(settings, dry_run=True)
 
@@ -195,7 +207,7 @@ class TestUCSyncUnit:
             UCTableInfo(catalog="prod_catalog", schema="pstage", table_name="t1"),
         ]
         with patch("purview_mcp.skills.uc_sync.list_uc_tables", new=AsyncMock(return_value=mock_tables)), \
-             patch("purview_mcp.skills.uc_sync.PurviewClient") as MockPurview:
+             patch("purview_mcp.skills.uc_sync.get_purview_client") as MockPurview:
             MockPurview.return_value.upsert_entity = AsyncMock(return_value={"status": "ok"})
 
             result = await uc_sync.sync_uc_to_purview(settings, dry_run=False)

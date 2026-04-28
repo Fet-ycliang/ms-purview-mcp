@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..client.purview import PurviewClient
+from ..client.purview import get_purview_client
 from ..models import LineageNode, LineageResult, Settings
 
 
@@ -12,7 +12,7 @@ async def get_lineage(
     depth: int = 3,
 ) -> LineageResult:
     """取得指定資產的上下游血緣關係。"""
-    client = PurviewClient(settings)
+    client = get_purview_client(settings)
 
     entity_data = await client.get_entity_by_qualified_name(qualified_name, entity_type)
     guid = entity_data.get("entity", {}).get("guid", "")

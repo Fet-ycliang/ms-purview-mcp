@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import atexit
 import json
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -7,6 +9,8 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from .cache import CACHE_TYPES, get_cache_manager
+from .client.purview import get_purview_client
 from .models import Settings
 from .skills import discovery, glossary, lineage, policy, schema, uc_sync
 
@@ -276,7 +280,51 @@ async def find_tables_by_column(
     return "\n".join(lines)
 
 
+@mcp.tool()
+async def clear_cache(cache_type: str = "all") -> str:
+    """
+    清空本地 API 快取。當你知道 Purview 的資料剛更新、想強制重新查詢時使用。
+
+    - cache_type: 'all'（預設，清全部）或下列之一：
+      'entity'（表詳情、欄位結構）、'lineage'（血緣）、
+      'glossary'（企業詞彙）、'search'（搜尋結果）
+    """
+    mgr = get_cache_manager()
+    try:
+        cleared = mgr.clear(cache_type)
+    except ValueError as e:
+        return f"⚠️ {e}"
+
+    if not cleared:
+        return f"未清空任何 cache（cache_type={cache_type!r}）"
+
+    parts = [f"{name}={count}" for name, count in cleared.items()]
+    remaining = mgr.all_sizes()
+    remaining_parts = [f"{k}={v}" for k, v in remaining.items()]
+    stats = mgr.stats.summary()
+    stats_parts = [f"{k}: {v['hits']}h/{v['misses']}m ({v['hit_rate']:.0%})" for k, v in stats.items()]
+    return (
+        f"✅ 已清空 **{cache_type}** cache：{', '.join(parts)}\n"
+        f"剩餘項目：{', '.join(remaining_parts)}\n"
+        f"累計統計：{' | '.join(stats_parts)}"
+    )
+
+
+def _shutdown() -> None:
+    """atexit handler：關閉 PurviewClient 的 httpx 連線。"""
+    try:
+        client = get_purview_client(_settings())
+    except Exception:
+        return
+    try:
+        asyncio.run(client.aclose())
+    except Exception:
+        # event loop 已關閉或 client 已關閉，忽略
+        pass
+
+
 def main() -> None:
+    atexit.register(_shutdown)
     mcp.run()
 
 

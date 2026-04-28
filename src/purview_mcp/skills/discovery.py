@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..client.purview import PurviewClient
+from ..client.purview import get_purview_client
 from ..models import AssetResult, Settings
 
 _DATABRICKS_TYPES = [
@@ -18,7 +18,7 @@ async def search_assets(
     entity_type: str | None = None,
 ) -> list[AssetResult]:
     """搜尋 Purview 資料資產，entity_type 未指定時預設搜尋所有 Databricks 類型。"""
-    client = PurviewClient(settings)
+    client = get_purview_client(settings)
 
     if entity_type:
         raw = await client.search(keywords, limit, entity_type)
