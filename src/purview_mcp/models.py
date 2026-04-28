@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     databricks_client_secret: Optional[str] = None
     databricks_tenant_id: Optional[str] = None
 
-    uc_default_catalog: str = "main"
+    uc_default_catalog: str = "prod_catalog"
+    uc_catalogs: list[str] = ["prod_catalog", "others_catalog"]
 
     @property
     def purview_base_url(self) -> str:

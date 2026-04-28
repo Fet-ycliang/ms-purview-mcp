@@ -4,8 +4,6 @@ import json
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.catalog import TableType
-
 from ..client.purview import PurviewClient
 from ..models import Settings, UCColumnInfo, UCTableInfo
 
@@ -31,30 +29,37 @@ async def list_uc_tables(
 ) -> list[UCTableInfo]:
     """列出 Unity Catalog 中的資料表，含 column metadata。"""
     db = _build_databricks_client(settings)
-    target_catalog = catalog or settings.uc_default_catalog
+    target_catalogs = [catalog] if catalog else settings.uc_catalogs
 
     tables: list[UCTableInfo] = []
-    for table in db.tables.list(catalog_name=target_catalog, schema_name=schema_name or ""):
-        columns = [
-            UCColumnInfo(
-                name=col.name or "",
-                type_text=col.type_text,
-                comment=col.comment,
-                nullable=col.nullable if col.nullable is not None else True,
-            )
-            for col in (table.columns or [])
-        ]
-        tables.append(
-            UCTableInfo(
-                catalog=table.catalog_name or target_catalog,
-                schema=table.schema_name or "",
-                table_name=table.name or "",
-                table_type=table.table_type.value if table.table_type else None,
-                comment=table.comment,
-                properties=dict(table.properties or {}),
-                columns=columns,
-            )
+    for target_catalog in target_catalogs:
+        schemas = (
+            [schema_name]
+            if schema_name
+            else [s.name for s in db.schemas.list(catalog_name=target_catalog) if s.name]
         )
+        for schema in schemas:
+            for table in db.tables.list(catalog_name=target_catalog, schema_name=schema):
+                columns = [
+                    UCColumnInfo(
+                        name=col.name or "",
+                        type_text=col.type_text,
+                        comment=col.comment,
+                        nullable=col.nullable if col.nullable is not None else True,
+                    )
+                    for col in (table.columns or [])
+                ]
+                tables.append(
+                    UCTableInfo(
+                        catalog=table.catalog_name or target_catalog,
+                        schema=table.schema_name or schema,
+                        table_name=table.name or "",
+                        table_type=table.table_type.value if table.table_type else None,
+                        comment=table.comment,
+                        properties=dict(table.properties or {}),
+                        columns=columns,
+                    )
+                )
     return tables
 
 

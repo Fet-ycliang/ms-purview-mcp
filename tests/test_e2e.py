@@ -8,7 +8,8 @@ import asyncio
 from purview_mcp.models import Settings
 from purview_mcp.auth import get_token
 from purview_mcp.client.purview import PurviewClient
-from purview_mcp.skills import discovery, glossary, policy
+from purview_mcp.models import LineageResult
+from purview_mcp.skills import discovery, glossary, lineage, policy, uc_sync
 
 
 @pytest.fixture(scope="session")
@@ -182,3 +183,71 @@ class TestModels:
         from purview_mcp.models import UCTableInfo
         t = UCTableInfo(catalog="main", schema="cbss", table_name="orders")
         assert t.schema_name == "cbss"
+
+
+# ──────────────────────────────────────────
+# TC-07: Skill — Lineage
+# ──────────────────────────────────────────
+class TestLineageSkill:
+    """Lineage 測試自動從 Discovery 抓一個實際資產的 qualified_name。"""
+
+    @pytest.fixture(scope="class")
+    async def sample_qn(self, settings: Settings) -> str:
+        results = await discovery.search_assets(
+            settings, keywords="*", limit=1, entity_type="databricks_table"
+        )
+        if not results:
+            pytest.skip("Purview 中沒有 databricks_table 資產，跳過 Lineage 測試")
+        return results[0].qualified_name
+
+    @pytest.mark.asyncio
+    async def test_get_lineage_returns_result(self, settings: Settings, sample_qn: str):
+        """TC-07: get_lineage 回傳 LineageResult，upstream/downstream 為 list"""
+        result = await lineage.get_lineage(settings, sample_qn)
+        assert isinstance(result, LineageResult)
+        assert isinstance(result.upstream, list)
+        assert isinstance(result.downstream, list)
+
+    @pytest.mark.asyncio
+    async def test_get_lineage_input_direction(self, settings: Settings, sample_qn: str):
+        """TC-07b: direction=INPUT 只回傳上游，downstream 為空"""
+        result = await lineage.get_lineage(settings, sample_qn, direction="INPUT")
+        assert isinstance(result.upstream, list)
+        assert result.downstream == []
+
+    @pytest.mark.asyncio
+    async def test_get_lineage_output_direction(self, settings: Settings, sample_qn: str):
+        """TC-07c: direction=OUTPUT 只回傳下游，upstream 為空"""
+        result = await lineage.get_lineage(settings, sample_qn, direction="OUTPUT")
+        assert isinstance(result.downstream, list)
+        assert result.upstream == []
+
+
+# ──────────────────────────────────────────
+# TC-08: Skill — UC Sync (dry run only)
+# ──────────────────────────────────────────
+class TestUCSyncSkill:
+    @pytest.mark.asyncio
+    async def test_dry_run_returns_preview(self, settings: Settings):
+        """TC-08: sync_uc_to_purview dry_run=True 回傳 count 與 entities 清單"""
+        result = await uc_sync.sync_uc_to_purview(settings, dry_run=True)
+        assert "dry_run" in result
+        assert result["dry_run"] is True
+        assert "count" in result
+        assert isinstance(result["count"], int)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_specific_catalog(self, settings: Settings):
+        """TC-08b: 指定 catalog=prod_catalog 時 dry_run 仍正確運作"""
+        result = await uc_sync.sync_uc_to_purview(
+            settings, catalog="prod_catalog", dry_run=True
+        )
+        assert result.get("dry_run") is True
+
+    @pytest.mark.asyncio
+    async def test_dry_run_specific_schema(self, settings: Settings):
+        """TC-08c: 指定 schema_name=pstage 時 dry_run 不報錯"""
+        result = await uc_sync.sync_uc_to_purview(
+            settings, catalog="prod_catalog", schema_name="pstage", dry_run=True
+        )
+        assert "dry_run" in result or "synced" in result
