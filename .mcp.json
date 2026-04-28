@@ -1,0 +1,9 @@
+{
+	"mcpServers": {
+	  "purview": {
+		"command": "uv",
+		"args": ["run", "python", "-m", "purview_mcp.server"],
+		"cwd": "D:/azure_code/Purview"
+	  }
+	}
+}

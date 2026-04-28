@@ -1,0 +1,11 @@
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "purview"
+  ],
+  "permissions": {
+    "allow": [
+      "mcp__purview__search_data_assets"
+    ]
+  }
+}
