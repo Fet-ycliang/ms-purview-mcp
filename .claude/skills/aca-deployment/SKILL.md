@@ -163,6 +163,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 - Azure 登入採雙模式：
   - `AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，workflow 走 service principal secret login
   - deploy secret 不存在時，workflow 才走 GitHub OIDC
+- GitHub deploy workflow 只做 build / push / rollout；`PURVIEW_*`、`DATABRICKS_*` 這些 runtime env 會在 `azd provision` 時寫進 ACA，不需要每次 deploy 都再提供一次
 - `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
   - `latestRevisionName == latestReadyRevisionName`
   - ACA 目前 container image 已切到本次部署 image

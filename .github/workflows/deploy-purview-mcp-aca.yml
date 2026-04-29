@@ -15,7 +15,6 @@ name: Build & Deploy purview-mcp
 # 5. Repository Secrets 至少需設定：
 #    - AZURE_DEPLOY_CLIENT_ID（未設定時回退到既有 AZURE_CLIENT_ID）
 #    - AZURE_DEPLOY_TENANT_ID（未設定時回退到既有 AZURE_TENANT_ID）
-#    - DATABRICKS_TOKEN
 #    - AZURE_DEPLOY_CLIENT_SECRET（未完成 OIDC federation 時必填；未設定時回退到既有 AZURE_CLIENT_SECRET）
 # 6. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
 
@@ -53,9 +52,6 @@ env:
   DEPLOY_AZURE_CLIENT_ID: ${{ secrets.AZURE_DEPLOY_CLIENT_ID != '' && secrets.AZURE_DEPLOY_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
   DEPLOY_AZURE_TENANT_ID: ${{ secrets.AZURE_DEPLOY_TENANT_ID != '' && secrets.AZURE_DEPLOY_TENANT_ID || secrets.AZURE_TENANT_ID }}
   DEPLOY_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && secrets.AZURE_DEPLOY_CLIENT_SECRET || secrets.AZURE_CLIENT_SECRET }}
-  PURVIEW_TENANT_ID_FOR_TESTS: ${{ secrets.PURVIEW_TENANT_ID != '' && secrets.PURVIEW_TENANT_ID || secrets.AZURE_TENANT_ID }}
-  PURVIEW_CLIENT_ID_FOR_TESTS: ${{ secrets.PURVIEW_CLIENT_ID != '' && secrets.PURVIEW_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
-  PURVIEW_CLIENT_SECRET_FOR_TESTS: ${{ secrets.PURVIEW_CLIENT_SECRET != '' && secrets.PURVIEW_CLIENT_SECRET || secrets.AZURE_CLIENT_SECRET }}
   AZURE_LOGIN_MODE: ${{ (secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && 'client-secret') || (secrets.AZURE_CLIENT_SECRET != '' && 'client-secret') || 'oidc' }}
   ACR_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
   ACR_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY_ENDPOINT != '' && vars.AZURE_CONTAINER_REGISTRY_ENDPOINT || format('{0}.azurecr.io', vars.AZURE_CONTAINER_REGISTRY_NAME) }}
@@ -101,13 +97,6 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -m "not e2e" -v --tb=short
-        env:
-          PURVIEW_TENANT_ID: ${{ env.PURVIEW_TENANT_ID_FOR_TESTS }}
-          PURVIEW_CLIENT_ID: ${{ env.PURVIEW_CLIENT_ID_FOR_TESTS }}
-          PURVIEW_CLIENT_SECRET: ${{ env.PURVIEW_CLIENT_SECRET_FOR_TESTS }}
-          PURVIEW_ACCOUNT_NAME: ${{ vars.PURVIEW_ACCOUNT_NAME }}
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
       - name: 驗證 Azure workflow 設定
         run: |
