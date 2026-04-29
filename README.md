@@ -76,7 +76,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 | 名稱 | 建議值 |
 |------|--------|
-| `AZURE_SUBSCRIPTION_ID` | 你的 Azure Subscription ID |
+| `AZURE_SUBSCRIPTION_ID` | 你的 Azure Subscription GUID，建議不要填 subscription display name |
 | `AZURE_RESOURCE_GROUP_NAME` | `apim-app-bst-rg` |
 | `AZURE_CONTAINER_REGISTRY_NAME` | `fetimageacr` |
 | `AZURE_CONTAINER_REGISTRY_ENDPOINT` | `fetimageacr.azurecr.io` |
@@ -89,9 +89,9 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 | 名稱 | 說明 |
 |------|------|
-| `AZURE_CLIENT_ID` | GitHub OIDC 對應的 Service Principal Client ID |
+| `AZURE_CLIENT_ID` | GitHub OIDC / service principal secret 共用的 Service Principal Client ID |
 | `AZURE_TENANT_ID` | Azure Tenant ID |
-| `AZURE_CLIENT_SECRET` | Service Principal secret |
+| `AZURE_CLIENT_SECRET` | Service Principal secret。若保留此 secret，workflow 會走 service principal secret login；若刪除此 secret，workflow 會改走 OIDC |
 | `DATABRICKS_TOKEN` | Databricks PAT |
 
 #### `.env` 與 CI 變數對照
@@ -110,10 +110,13 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 #### 部署踩坑與注意事項
 
 - 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
+- GitHub Actions 的 Azure 登入現在採 **雙模式**：`AZURE_CLIENT_SECRET` 存在時，直接走 service principal secret login；只有在你刪除此 secret 後，workflow 才會改走 OIDC
+- 若 workflow 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。處理方式二選一：保留 `AZURE_CLIENT_SECRET` 讓 workflow 走 secret login，或在 Entra App 補上對應 branch 的 federated credential
 - `azd env new` / `azd provision` 必須在 repo 根目錄執行；如果不在 `azure.yaml` 所在目錄，會出現 `no project exists`
 - `azd env set` 語法是 `azd env set KEY VALUE`，不要寫成 `KEY=VALUE`
 - `AZURE_ENV_NAME` 是 azd 環境名；`AZURE_CAE_NAME` 是既有 Container Apps Environment 名稱，兩者不要混用
 - `AZURE_LOCATION` 請用 `eastus2` 這種 Azure CLI 代碼，不要用 `East US 2`
+- `AZURE_SUBSCRIPTION_ID` 建議填 Azure Subscription GUID。雖然 workflow 的 secret login 會嘗試用 `az account set --subscription` 接受名稱，但 OIDC 路徑仍應使用真正的 subscription GUID
 - `UC_CATALOGS` 在 azd / `.env` 層請用逗號分隔字串，例如 `prod_catalog,dev_catalog`；不要直接塞 JSON 陣列
 - `azd provision` 會真的建資源，不是單純驗證；初次建立 ACA 需先用 public bootstrap image，否則會卡在 ACR 尚未有 `latest`
 - 若走 `azd deploy` 或 workflow build，請明確提供 `AZURE_CONTAINER_REGISTRY_ENDPOINT`，否則 remote build 可能找不到 registry endpoint

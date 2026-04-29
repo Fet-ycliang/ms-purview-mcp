@@ -136,6 +136,9 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 - `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
 - `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
+- Azure 登入採雙模式：
+  - `AZURE_CLIENT_SECRET` 存在時，workflow 走 service principal secret login
+  - `AZURE_CLIENT_SECRET` 不存在時，workflow 才走 GitHub OIDC
 - `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
   - `latestRevisionName == latestReadyRevisionName`
   - ACA 目前 container image 已切到本次部署 image
@@ -159,10 +162,12 @@ Image naming：
 ## 已知陷阱
 
 - GitHub Actions 目前讀的是 **Repository-level** Variables / Secrets；若 GitHub UI 要求先建立 `Environment Name`，代表你進到 Environment 層級，不是本 workflow 使用的位置
+- 若 GitHub Actions 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。可先保留 `AZURE_CLIENT_SECRET` 讓 workflow 走 service principal secret login，或補上 branch 對應的 federated credential
 - `azd env new` / `azd provision` 必須在專案根目錄執行；否則會出現 `no project exists; to create a new project, run azd init`
 - `azd env set` 一律用 `azd env set KEY VALUE`；不要混用 `KEY=VALUE`
 - `AZURE_ENV_NAME` 只代表 azd 環境，`AZURE_CAE_NAME` 才是既有 ACA Environment 名稱
 - `AZURE_LOCATION` 應使用 `eastus2` 這類 CLI 代碼，不要填顯示名稱 `East US 2`
+- `AZURE_SUBSCRIPTION_ID` 建議填真正的 subscription GUID。secret login 雖可用 `az account set --subscription` 接受名稱，但 OIDC 路徑仍應使用 GUID
 - `UC_CATALOGS` 在 azd env 與 `.env` 都用逗號分隔字串，例如 `prod_catalog,dev_catalog`；Bicep 內再轉成 JSON 陣列字串
 - `azd provision` 是實際部署，不是 dry-run；初次建立 ACA 時要先用 `AZURE_BOOTSTRAP_CONTAINER_IMAGE`，避免 ACR 尚未有應用 image 導致 revision 建立失敗
 - `USE_HTTP=true` 必須在容器環境變數中設定，否則 server 會跑 stdio mode 然後立即退出

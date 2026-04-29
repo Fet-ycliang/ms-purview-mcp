@@ -5,17 +5,19 @@ name: Build & Deploy purview-mcp
 # - main push：自動建置並推送 image 到 ACR，接著 rollout ACA
 #
 # 前置條件：
-# 1. GitHub OIDC 對應的 Service Principal 需能操作 ACR 與 ACA
-# 2. Repository Variables 至少需設定：
+# 1. Service Principal 需能操作 ACR 與 ACA
+# 2. 若已在 Entra App 設定 GitHub federated credential，可不設定 AZURE_CLIENT_SECRET，workflow 會走 OIDC
+# 3. 若尚未設定 federated credential，保留 AZURE_CLIENT_SECRET，workflow 會自動改走 service principal secret login
+# 4. Repository Variables 至少需設定：
 #    - AZURE_SUBSCRIPTION_ID
 #    - AZURE_RESOURCE_GROUP_NAME
 #    - AZURE_CONTAINER_REGISTRY_NAME
-# 3. Repository Secrets 至少需設定：
+# 5. Repository Secrets 至少需設定：
 #    - AZURE_CLIENT_ID
 #    - AZURE_TENANT_ID
-#    - AZURE_CLIENT_SECRET
 #    - DATABRICKS_TOKEN
-# 4. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
+#    - AZURE_CLIENT_SECRET（未完成 OIDC federation 時必填）
+# 6. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
 
 on:
   push:
@@ -46,6 +48,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.12'
+  AZURE_CORE_OUTPUT: none
   ACR_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
   ACR_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY_ENDPOINT != '' && vars.AZURE_CONTAINER_REGISTRY_ENDPOINT || format('{0}.azurecr.io', vars.AZURE_CONTAINER_REGISTRY_NAME) }}
   ACA_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
@@ -98,12 +101,54 @@ jobs:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
-      - name: Azure login
+      - name: 驗證 Azure workflow 設定
+        run: |
+          set -euo pipefail
+
+          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ]; then
+            echo "::error::缺少 GitHub secret: AZURE_CLIENT_ID"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.AZURE_TENANT_ID }}" ]; then
+            echo "::error::缺少 GitHub secret: AZURE_TENANT_ID"
+            exit 1
+          fi
+
+          if [ -z "${{ vars.AZURE_SUBSCRIPTION_ID }}" ]; then
+            echo "::error::缺少 GitHub variable: AZURE_SUBSCRIPTION_ID"
+            exit 1
+          fi
+
+          if ! printf '%s' "${{ vars.AZURE_SUBSCRIPTION_ID }}" | grep -Eq '^[0-9a-fA-F-]{36}$'; then
+            echo "::warning::AZURE_SUBSCRIPTION_ID 目前不是 GUID。Service principal secret login 仍會嘗試用 az account set 處理，但若要走 OIDC，建議改成 Azure Subscription GUID。"
+          fi
+
+      - name: Azure login (OIDC)
+        if: ${{ secrets.AZURE_CLIENT_SECRET == '' }}
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure login (Service Principal secret)
+        if: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          az login \
+            --service-principal \
+            --username "$AZURE_CLIENT_ID" \
+            --password "$AZURE_CLIENT_SECRET" \
+            --tenant "$AZURE_TENANT_ID" \
+            --output none
+          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+          az account show --query "{name:name,id:id}" -o table
 
       - name: 設定 image tags
         id: tags
@@ -159,12 +204,31 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Azure login
+      - name: Azure login (OIDC)
+        if: ${{ secrets.AZURE_CLIENT_SECRET == '' }}
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure login (Service Principal secret)
+        if: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          az login \
+            --service-principal \
+            --username "$AZURE_CLIENT_ID" \
+            --password "$AZURE_CLIENT_SECRET" \
+            --tenant "$AZURE_TENANT_ID" \
+            --output none
+          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+          az account show --query "{name:name,id:id}" -o table
 
       - name: 更新 ACA image
         id: rollout
