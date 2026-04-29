@@ -31,6 +31,7 @@ on:
       - pyproject.toml
       - uv.lock
       - src/purview_mcp/**
+      - tests/**
   workflow_dispatch:
     inputs:
       reason:
@@ -61,7 +62,7 @@ env:
   ACA_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
   ACA_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_CONTAINER_APP_NAME || 'ms-purview-mcp-ca' }}
   ACA_CONTAINER_NAME: ${{ vars.ACA_CONTAINER_NAME != '' && vars.ACA_CONTAINER_NAME || 'main' }}
-  IMAGE_NAME: purview-mcp-app
+  IMAGE_NAME: ms-purview-mcp
 
 jobs:
   build-and-push:

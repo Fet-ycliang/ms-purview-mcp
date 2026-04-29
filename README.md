@@ -66,8 +66,8 @@ azd provision
 
 `main` 與 `develop` 分支採用 AuroraOps 同款的 ACR / ACA 流程：
 
-- `develop` push：建置 `purview-mcp-app` image，推送 `develop` 與 `develop-YYYYMMDD-sha7`
-- `main` push：建置 `purview-mcp-app` image，推送 `latest` 與 `YYYYMMDD-sha7`，再自動 rollout `ms-purview-mcp-ca`
+- `develop` push：建置 `ms-purview-mcp` image，推送 `develop` 與 `develop-YYYYMMDD-sha7`
+- `main` push：建置 `ms-purview-mcp` image，推送 `latest` 與 `YYYYMMDD-sha7`，再自動 rollout `ms-purview-mcp-ca`
 - rollout 完成條件：`latestRevisionName` 與 `latestReadyRevisionName` 一致，且 ACA 目前 image 已切到本次日期版 tag
 
 Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
