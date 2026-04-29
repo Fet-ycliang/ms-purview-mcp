@@ -142,13 +142,31 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
-          az login \
+          LOGIN_ERROR_FILE="$(mktemp)"
+          if ! az login \
             --service-principal \
             --username "$AZURE_CLIENT_ID" \
             --password "$AZURE_CLIENT_SECRET" \
             --tenant "$AZURE_TENANT_ID" \
-            --output none
-          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+            --output none 2>"$LOGIN_ERROR_FILE"; then
+            cat "$LOGIN_ERROR_FILE"
+            exit 1
+          fi
+          rm -f "$LOGIN_ERROR_FILE"
+
+          if printf '%s' "$AZURE_SUBSCRIPTION_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'; then
+            TARGET_SUBSCRIPTION="$AZURE_SUBSCRIPTION_ID"
+          else
+            TARGET_SUBSCRIPTION="$(az account list --query "[?name=='$AZURE_SUBSCRIPTION_ID'] | [0].id" -o tsv)"
+            if [ -z "$TARGET_SUBSCRIPTION" ]; then
+              echo "::error::AZURE_SUBSCRIPTION_ID='$AZURE_SUBSCRIPTION_ID' 不是 GUID，且登入後找不到同名 subscription。請改填 Azure Subscription GUID。"
+              az account list --query "[].{name:name,id:id}" -o table
+              exit 1
+            fi
+            echo "Resolved subscription name '$AZURE_SUBSCRIPTION_ID' to '$TARGET_SUBSCRIPTION'"
+          fi
+
+          az account set --subscription "$TARGET_SUBSCRIPTION"
           az account show --query "{name:name,id:id}" -o table
 
       - name: 設定 image tags
@@ -222,13 +240,31 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
-          az login \
+          LOGIN_ERROR_FILE="$(mktemp)"
+          if ! az login \
             --service-principal \
             --username "$AZURE_CLIENT_ID" \
             --password "$AZURE_CLIENT_SECRET" \
             --tenant "$AZURE_TENANT_ID" \
-            --output none
-          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+            --output none 2>"$LOGIN_ERROR_FILE"; then
+            cat "$LOGIN_ERROR_FILE"
+            exit 1
+          fi
+          rm -f "$LOGIN_ERROR_FILE"
+
+          if printf '%s' "$AZURE_SUBSCRIPTION_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'; then
+            TARGET_SUBSCRIPTION="$AZURE_SUBSCRIPTION_ID"
+          else
+            TARGET_SUBSCRIPTION="$(az account list --query "[?name=='$AZURE_SUBSCRIPTION_ID'] | [0].id" -o tsv)"
+            if [ -z "$TARGET_SUBSCRIPTION" ]; then
+              echo "::error::AZURE_SUBSCRIPTION_ID='$AZURE_SUBSCRIPTION_ID' 不是 GUID，且登入後找不到同名 subscription。請改填 Azure Subscription GUID。"
+              az account list --query "[].{name:name,id:id}" -o table
+              exit 1
+            fi
+            echo "Resolved subscription name '$AZURE_SUBSCRIPTION_ID' to '$TARGET_SUBSCRIPTION'"
+          fi
+
+          az account set --subscription "$TARGET_SUBSCRIPTION"
           az account show --query "{name:name,id:id}" -o table
 
       - name: 更新 ACA image
