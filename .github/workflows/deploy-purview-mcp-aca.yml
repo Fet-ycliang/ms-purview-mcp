@@ -1,33 +1,69 @@
-name: Deploy purview-mcp image to ACA
+name: Build & Deploy purview-mcp
+
+# 參考 AuroraOps 的 ACR / ACA 自動上版模式：
+# - develop push：自動建置並推送 image 到 ACR
+# - main push：自動建置並推送 image 到 ACR，接著 rollout ACA
+#
+# 前置條件：
+# 1. GitHub OIDC 對應的 Service Principal 需能操作 ACR 與 ACA
+# 2. Repository Variables 至少需設定：
+#    - AZURE_SUBSCRIPTION_ID
+#    - AZURE_RESOURCE_GROUP_NAME
+#    - AZURE_CONTAINER_REGISTRY_NAME
+# 3. Repository Secrets 至少需設定：
+#    - AZURE_CLIENT_ID
+#    - AZURE_TENANT_ID
+#    - AZURE_CLIENT_SECRET
+#    - DATABRICKS_TOKEN
+# 4. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
+      - develop
     paths:
       - .github/workflows/deploy-purview-mcp-aca.yml
+      - .dockerignore
       - Dockerfile
       - pyproject.toml
       - uv.lock
       - src/purview_mcp/**
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 手動觸發原因
+        required: false
+        default: 手動建置
 
 permissions:
   id-token: write
   contents: read
 
 concurrency:
-  group: deploy-purview-mcp-aca-main
+  group: deploy-purview-mcp-aca-${{ github.ref }}
   cancel-in-progress: false
 
 env:
-  AZD_ENV_NAME: ${{ vars.AZD_ENV_NAME != '' && vars.AZD_ENV_NAME || 'purview-mcp-dev' }}
-  AZURE_LOCATION: ${{ vars.AZURE_LOCATION != '' && vars.AZURE_LOCATION || 'eastus2' }}
+  PYTHON_VERSION: '3.12'
+  ACR_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
+  ACR_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY_ENDPOINT != '' && vars.AZURE_CONTAINER_REGISTRY_ENDPOINT || format('{0}.azurecr.io', vars.AZURE_CONTAINER_REGISTRY_NAME) }}
+  ACA_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+  ACA_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_CONTAINER_APP_NAME || 'ms-purview-mcp-ca' }}
+  ACA_CONTAINER_NAME: ${{ vars.ACA_CONTAINER_NAME != '' && vars.ACA_CONTAINER_NAME || 'main' }}
+  IMAGE_NAME: purview-mcp-app
 
 jobs:
-  deploy:
-    name: Build image and deploy to ACA
+  build-and-push:
+    name: Build & Push to ACR
     runs-on: ubuntu-latest
+    outputs:
+      tag_latest: ${{ steps.tags.outputs.tag_latest }}
+      tag_dated: ${{ steps.tags.outputs.tag_dated }}
+      deploy_image: ${{ steps.tags.outputs.tag_dated }}
+      short_sha: ${{ steps.tags.outputs.short_sha }}
+      date_tag: ${{ steps.tags.outputs.date_tag }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,13 +71,20 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
         run: pip install uv
 
-      - name: Install azd
-        uses: Azure/setup-azd@v2
+      - name: Run tests
+        run: uv run python -m pytest tests/ -v --tb=short
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          PURVIEW_ACCOUNT_NAME: ${{ vars.PURVIEW_ACCOUNT_NAME }}
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
       - name: Azure login
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
@@ -50,64 +93,127 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login azd with GitHub OIDC
+      - name: 設定 image tags
+        id: tags
         run: |
-          azd auth login \
-            --client-id "$AZURE_CLIENT_ID" \
-            --tenant-id "$AZURE_TENANT_ID" \
-            --federated-credential-provider github \
-            --no-prompt
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          DATE_TAG="$(date -u +%Y%m%d)"
+          BRANCH="${GITHUB_REF_NAME}"
 
-      - name: Configure azd environment
+          if [ "$BRANCH" = "main" ]; then
+            echo "tag_latest=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+            echo "tag_dated=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DATE_TAG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_latest=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:develop" >> "$GITHUB_OUTPUT"
+            echo "tag_dated=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${DATE_TAG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=develop" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "date_tag=${DATE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Push to ACR
         run: |
-          azd env new "$AZD_ENV_NAME" --no-prompt || azd env select "$AZD_ENV_NAME"
-          azd env set AZURE_LOCATION "$AZURE_LOCATION"
-          azd env set AZURE_SUBSCRIPTION_ID "$AZURE_SUBSCRIPTION_ID"
-          azd env set AZURE_RESOURCE_GROUP_NAME "$AZURE_RESOURCE_GROUP_NAME"
-          azd env set AZURE_CONTAINER_REGISTRY_NAME "$AZURE_CONTAINER_REGISTRY_NAME"
-          azd env set AZURE_CAE_NAME "$AZURE_CAE_NAME"
-          azd env set AZURE_TENANT_ID "$AZURE_TENANT_ID"
-          azd env set AZURE_CLIENT_ID "$AZURE_CLIENT_ID"
-          azd env set AZURE_CLIENT_SECRET "$AZURE_CLIENT_SECRET"
-          azd env set PURVIEW_ACCOUNT_NAME "$PURVIEW_ACCOUNT_NAME"
-          azd env set DATABRICKS_HOST "$DATABRICKS_HOST"
-          azd env set DATABRICKS_TOKEN "$DATABRICKS_TOKEN"
-          [ -n "$UC_DEFAULT_CATALOG" ] && azd env set UC_DEFAULT_CATALOG "$UC_DEFAULT_CATALOG" || true
-          [ -n "$UC_CATALOGS" ] && azd env set UC_CATALOGS "$UC_CATALOGS" || true
-          [ -n "$AZURE_DEPLOY_APIM_MCP_API" ] && azd env set AZURE_DEPLOY_APIM_MCP_API "$AZURE_DEPLOY_APIM_MCP_API" || true
-          [ -n "$AZURE_APIM_NAME" ] && azd env set AZURE_APIM_NAME "$AZURE_APIM_NAME" || true
-        env:
-          AZD_ENV_NAME: ${{ env.AZD_ENV_NAME }}
-          AZURE_LOCATION: ${{ env.AZURE_LOCATION }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          AZURE_RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
-          AZURE_CONTAINER_REGISTRY_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
-          AZURE_CAE_NAME: ${{ vars.AZURE_CAE_NAME }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          PURVIEW_ACCOUNT_NAME: ${{ vars.PURVIEW_ACCOUNT_NAME }}
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          UC_DEFAULT_CATALOG: ${{ vars.UC_DEFAULT_CATALOG }}
-          UC_CATALOGS: ${{ vars.UC_CATALOGS }}
-          AZURE_DEPLOY_APIM_MCP_API: ${{ vars.AZURE_DEPLOY_APIM_MCP_API }}
-          AZURE_APIM_NAME: ${{ vars.AZURE_APIM_NAME }}
+          az acr build \
+            --registry "${{ env.ACR_NAME }}" \
+            --image "${{ steps.tags.outputs.tag_latest }}" \
+            --image "${{ steps.tags.outputs.tag_dated }}" \
+            --file Dockerfile \
+            .
 
-      - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          PURVIEW_ACCOUNT_NAME: ${{ vars.PURVIEW_ACCOUNT_NAME }}
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      - name: 建置摘要
+        run: |
+          echo "## Build 完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 欄位 | 值 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 分支 | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | \`${{ steps.tags.outputs.short_sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 日期 | \`${{ steps.tags.outputs.date_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image (穩定 tag) | \`${{ steps.tags.outputs.tag_latest }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image (時間 tag) | \`${{ steps.tags.outputs.tag_dated }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "> **ACA 更新**：此 workflow 會自動 rollout 到 \`${{ env.ACA_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "> **ACA 更新**：develop 只建 image，不自動 rollout ACA" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      - name: Deploy image with azd
-        run: azd deploy --all --no-prompt
+  deploy-aca:
+    name: Rollout ACA
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Azure login
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: 更新 ACA image
+        id: rollout
         env:
-          AZD_ENV_NAME: ${{ env.AZD_ENV_NAME }}
+          DEPLOY_IMAGE: ${{ needs.build-and-push.outputs.deploy_image }}
+        run: |
+          az containerapp update \
+            --name "${{ env.ACA_NAME }}" \
+            --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
+            --image "$DEPLOY_IMAGE" \
+            --output none
+
+          LATEST_REVISION=$(az containerapp show \
+            --name "${{ env.ACA_NAME }}" \
+            --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
+            --query properties.latestRevisionName \
+            -o tsv)
+
+          echo "latest_revision=$LATEST_REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: 等待最新 revision ready
+        env:
+          DEPLOY_IMAGE: ${{ needs.build-and-push.outputs.deploy_image }}
+          LATEST_REVISION: ${{ steps.rollout.outputs.latest_revision }}
+        run: |
+          for attempt in $(seq 1 30); do
+            READY_REVISION=$(az containerapp show \
+              --name "${{ env.ACA_NAME }}" \
+              --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
+              --query properties.latestReadyRevisionName \
+              -o tsv)
+
+            CURRENT_IMAGE=$(az containerapp show \
+              --name "${{ env.ACA_NAME }}" \
+              --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
+              --query "properties.template.containers[?name=='${{ env.ACA_CONTAINER_NAME }}'].image | [0]" \
+              -o tsv)
+
+            echo "attempt=$attempt latest=$LATEST_REVISION ready=$READY_REVISION image=$CURRENT_IMAGE"
+
+            if [ -n "$LATEST_REVISION" ] && [ "$LATEST_REVISION" = "$READY_REVISION" ] && [ "$CURRENT_IMAGE" = "$DEPLOY_IMAGE" ]; then
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "::error::ACA rollout timeout: latest revision 未進入 ready 狀態"
+          az containerapp show \
+            --name "${{ env.ACA_NAME }}" \
+            --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
+            --query "{latestRevision:properties.latestRevisionName,latestReadyRevision:properties.latestReadyRevisionName,image:properties.template.containers[?name=='${{ env.ACA_CONTAINER_NAME }}'].image | [0]}" \
+            -o json
+          exit 1
+
+      - name: 部署摘要
+        run: |
+          echo "## ACA Rollout 完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 欄位 | 值 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Container App | \`${{ env.ACA_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Revision | \`${{ steps.rollout.outputs.latest_revision }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image | \`${{ needs.build-and-push.outputs.deploy_image }}\` |" >> "$GITHUB_STEP_SUMMARY"

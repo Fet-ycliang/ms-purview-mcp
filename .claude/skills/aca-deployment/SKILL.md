@@ -17,7 +17,7 @@ Claude Code / Databricks
         ↓ HTTPS + OAuth
     APIM（現有，API path: /purview-mcp）
         ↓
-    ACA ca-purview-mcp（external ingress, port 8080）
+    ACA ms-purview-mcp-ca（external ingress, port 8080）
         ↓
   Purview REST API + Databricks Unity Catalog
 ```
@@ -49,7 +49,8 @@ Claude Code / Databricks
 | `DATABRICKS_HOST` | param | `https://<workspace>.azuredatabricks.net` |
 | `DATABRICKS_TOKEN` | secret | Databricks PAT token |
 | `UC_DEFAULT_CATALOG` | param | 預設 Unity Catalog catalog 名稱 |
-| `UC_CATALOGS` | param | JSON 陣列，如 `["prod","dev"]` |
+| `UC_CATALOGS` | param | azd 設定用逗號分隔字串，如 `prod,dev`；部署時會轉成 JSON 陣列 |
+| `AZURE_BOOTSTRAP_CONTAINER_IMAGE` | param | 初次 provision 用的 public image，預設 `mcr.microsoft.com/dotnet/samples:aspnetapp` |
 
 ### azd 環境變數（.azure/<env>/.env）
 
@@ -57,8 +58,9 @@ Claude Code / Databricks
 AZURE_ENV_NAME=purview-mcp-dev
 AZURE_LOCATION=eastasia
 AZURE_RESOURCE_GROUP_NAME=rg-xxx
-AZURE_RESOURCE_NAME_STEM=purview-mcp
+AZURE_RESOURCE_NAME_STEM=ms-purview-mcp
 AZURE_CONTAINER_REGISTRY_NAME=fetimageacr
+AZURE_CONTAINER_REGISTRY_ENDPOINT=fetimageacr.azurecr.io
 AZURE_CAE_NAME=cae-fet-outlook-email-env
 AZURE_TENANT_ID=...
 AZURE_CLIENT_ID=...
@@ -66,6 +68,9 @@ AZURE_CLIENT_SECRET=...
 PURVIEW_ACCOUNT_NAME=...
 DATABRICKS_HOST=...
 DATABRICKS_TOKEN=...
+UC_DEFAULT_CATALOG=prod_catalog
+UC_CATALOGS=prod_catalog,dev_catalog
+AZURE_BOOTSTRAP_CONTAINER_IMAGE=mcr.microsoft.com/dotnet/samples:aspnetapp
 ```
 
 ## Phase 1 + 2 部署流程
@@ -81,8 +86,8 @@ azd env new purview-mcp-dev
 # 3. 部署 infrastructure + container app
 azd up
 # 或分開執行：
-azd provision    # 只建 infra
-azd deploy       # 只部署 image
+azd provision    # 只建 infra（先以 bootstrap image 建 ACA）
+azd deploy       # 本機 / 手動部署 image
 
 # 4. 驗證（ACA direct）
 curl -X POST https://<aca-fqdn>/mcp \
@@ -127,17 +132,43 @@ azd deploy
 
 Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 
-觸發條件：push to `main`，paths：
-- `Dockerfile`
-- `src/purview_mcp/**`
-- `pyproject.toml`
+參考 AuroraOps 的 ACR / ACA 自動上版模式：
 
-Image tag：台北時間戳記 `yyyyMMdd-HHmmss`
-ACR 路徑：`fetimageacr.azurecr.io/fet-purview-mcp-ca:<tag>`
+- `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
+- `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
+- `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
+  - `latestRevisionName == latestReadyRevisionName`
+  - ACA 目前 container image 已切到本次部署 image
+
+Image naming：
+
+- ACR image name：`purview-mcp-app`
+- main 穩定 tag：`latest`
+- main 日期 tag：`YYYYMMDD-sha7`
+- develop 穩定 tag：`develop`
+- develop 日期 tag：`develop-YYYYMMDD-sha7`
+
+預設設定：
+
+| 名稱 | 預設值 |
+|------|--------|
+| `ACA_NAME` | `ms-purview-mcp-ca` |
+| `ACA_CONTAINER_NAME` | `main` |
+| `IMAGE_NAME` | `purview-mcp-app` |
 
 ## 已知陷阱
 
+- `azd env new` / `azd provision` 必須在專案根目錄執行；否則會出現 `no project exists; to create a new project, run azd init`
+- `azd env set` 一律用 `azd env set KEY VALUE`；不要混用 `KEY=VALUE`
+- `AZURE_ENV_NAME` 只代表 azd 環境，`AZURE_CAE_NAME` 才是既有 ACA Environment 名稱
+- `AZURE_LOCATION` 應使用 `eastus2` 這類 CLI 代碼，不要填顯示名稱 `East US 2`
+- `UC_CATALOGS` 在 azd env 與 `.env` 都用逗號分隔字串，例如 `prod_catalog,dev_catalog`；Bicep 內再轉成 JSON 陣列字串
+- `azd provision` 是實際部署，不是 dry-run；初次建立 ACA 時要先用 `AZURE_BOOTSTRAP_CONTAINER_IMAGE`，避免 ACR 尚未有應用 image 導致 revision 建立失敗
 - `USE_HTTP=true` 必須在容器環境變數中設定，否則 server 會跑 stdio mode 然後立即退出
 - ACA `ingress.targetPort` 必須與 `PORT` 環境變數一致（8080）
+- `AZURE_CONTAINER_REGISTRY_ENDPOINT` 必須明確存在，否則 `azd deploy` 或 workflow remote build 可能無法判斷 registry endpoint
+- `.dockerignore` 必須保留 `uv.lock` 進 build context，同時排除 `.azure` 避免 azd secrets 被送進 ACR build
+- ACR remote build 無法存取公司內網套件 proxy 時，Docker build 要改走 public PyPI；不要直接把本機/公司 proxy 設定硬改成對外版本
 - APIM API path `/purview-mcp` 不能與 outlook-email 的 `/` 衝突，部署前先確認
 - Named Values 命名加 `PurviewMcp` 前綴，避免與 outlook-email 的 `Mcp*` 衝突
+- 已曝光在對話或終端的 `AZURE_CLIENT_SECRET` / `DATABRICKS_TOKEN` 等憑證，應立即輪替

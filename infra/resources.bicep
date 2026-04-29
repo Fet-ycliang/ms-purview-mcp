@@ -5,6 +5,7 @@ param identityName string
 param existingContainerRegistryName string
 param existingContainerAppsEnvName string
 param existingContainerAppsEnvResourceGroup string
+param bootstrapContainerImage string
 
 param azureTenantId string
 param azureClientId string
@@ -50,8 +51,9 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 }
 
 // ── Container App ─────────────────────────────────────────────────────────────
+// 初次 provision 先用 public bootstrap image 建立 ACA，之後由 azd deploy 更新成實際 image。
 
-var containerImage = '${containerRegistry.properties.loginServer}/fet-purview-mcp-ca:latest'
+var containerImage = bootstrapContainerImage
 
 var containerSecrets = [
   {
@@ -63,6 +65,8 @@ var containerSecrets = [
     value: databricksToken
   }
 ]
+
+var ucCatalogList = !empty(ucCatalogs) ? split(replace(ucCatalogs, ' ', ''), ',') : []
 
 var containerEnvVars = concat(
   [
@@ -76,7 +80,7 @@ var containerEnvVars = concat(
     { name: 'DATABRICKS_TOKEN', secretRef: 'databricks-token' }
   ],
   !empty(ucDefaultCatalog) ? [{ name: 'UC_DEFAULT_CATALOG', value: ucDefaultCatalog }] : [],
-  !empty(ucCatalogs) ? [{ name: 'UC_CATALOGS', value: ucCatalogs }] : []
+  length(ucCatalogList) > 0 ? [{ name: 'UC_CATALOGS', value: string(ucCatalogList) }] : []
 )
 
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {

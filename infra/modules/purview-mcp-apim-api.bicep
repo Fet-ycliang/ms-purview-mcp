@@ -5,7 +5,7 @@
 @description('現有 APIM 服務名稱')
 param apimServiceName string
 
-@description('purview-mcp ACA 的 backend URL（含尾端斜線），例如 https://ca-purview-mcp.xxx.azurecontainerapps.io/')
+@description('purview-mcp ACA 的 backend URL（含尾端斜線），例如 https://ms-purview-mcp-ca.xxx.azurecontainerapps.io/')
 param backendUrl string
 
 resource apimService 'Microsoft.ApiManagement/service@2023-05-01-preview' existing = {
