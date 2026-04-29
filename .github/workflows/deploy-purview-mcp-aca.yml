@@ -1,0 +1,113 @@
+name: Deploy purview-mcp image to ACA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/deploy-purview-mcp-aca.yml
+      - Dockerfile
+      - pyproject.toml
+      - uv.lock
+      - src/purview_mcp/**
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-purview-mcp-aca-main
+  cancel-in-progress: false
+
+env:
+  AZD_ENV_NAME: ${{ vars.AZD_ENV_NAME != '' && vars.AZD_ENV_NAME || 'purview-mcp-dev' }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION != '' && vars.AZURE_LOCATION || 'eastus2' }}
+
+jobs:
+  deploy:
+    name: Build image and deploy to ACA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install azd
+        uses: Azure/setup-azd@v2
+
+      - name: Azure login
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login azd with GitHub OIDC
+        run: |
+          azd auth login \
+            --client-id "$AZURE_CLIENT_ID" \
+            --tenant-id "$AZURE_TENANT_ID" \
+            --federated-credential-provider github \
+            --no-prompt
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Configure azd environment
+        run: |
+          azd env new "$AZD_ENV_NAME" --no-prompt || azd env select "$AZD_ENV_NAME"
+          azd env set AZURE_LOCATION "$AZURE_LOCATION"
+          azd env set AZURE_SUBSCRIPTION_ID "$AZURE_SUBSCRIPTION_ID"
+          azd env set AZURE_RESOURCE_GROUP_NAME "$AZURE_RESOURCE_GROUP_NAME"
+          azd env set AZURE_CONTAINER_REGISTRY_NAME "$AZURE_CONTAINER_REGISTRY_NAME"
+          azd env set AZURE_CAE_NAME "$AZURE_CAE_NAME"
+          azd env set AZURE_TENANT_ID "$AZURE_TENANT_ID"
+          azd env set AZURE_CLIENT_ID "$AZURE_CLIENT_ID"
+          azd env set AZURE_CLIENT_SECRET "$AZURE_CLIENT_SECRET"
+          azd env set PURVIEW_ACCOUNT_NAME "$PURVIEW_ACCOUNT_NAME"
+          azd env set DATABRICKS_HOST "$DATABRICKS_HOST"
+          azd env set DATABRICKS_TOKEN "$DATABRICKS_TOKEN"
+          [ -n "$UC_DEFAULT_CATALOG" ] && azd env set UC_DEFAULT_CATALOG "$UC_DEFAULT_CATALOG" || true
+          [ -n "$UC_CATALOGS" ] && azd env set UC_CATALOGS "$UC_CATALOGS" || true
+          [ -n "$AZURE_DEPLOY_APIM_MCP_API" ] && azd env set AZURE_DEPLOY_APIM_MCP_API "$AZURE_DEPLOY_APIM_MCP_API" || true
+          [ -n "$AZURE_APIM_NAME" ] && azd env set AZURE_APIM_NAME "$AZURE_APIM_NAME" || true
+        env:
+          AZD_ENV_NAME: ${{ env.AZD_ENV_NAME }}
+          AZURE_LOCATION: ${{ env.AZURE_LOCATION }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+          AZURE_CONTAINER_REGISTRY_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
+          AZURE_CAE_NAME: ${{ vars.AZURE_CAE_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          PURVIEW_ACCOUNT_NAME: ${{ vars.PURVIEW_ACCOUNT_NAME }}
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          UC_DEFAULT_CATALOG: ${{ vars.UC_DEFAULT_CATALOG }}
+          UC_CATALOGS: ${{ vars.UC_CATALOGS }}
+          AZURE_DEPLOY_APIM_MCP_API: ${{ vars.AZURE_DEPLOY_APIM_MCP_API }}
+          AZURE_APIM_NAME: ${{ vars.AZURE_APIM_NAME }}
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --tb=short
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          PURVIEW_ACCOUNT_NAME: ${{ vars.PURVIEW_ACCOUNT_NAME }}
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      - name: Deploy image with azd
+        run: azd deploy --all --no-prompt
+        env:
+          AZD_ENV_NAME: ${{ env.AZD_ENV_NAME }}

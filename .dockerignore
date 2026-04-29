@@ -1,0 +1,15 @@
+.git
+.github
+.vscode
+.claude
+tests/
+.env
+.env.*
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+CLAUDE.md
+PITFALLS.md
+README.md
+uv.lock
