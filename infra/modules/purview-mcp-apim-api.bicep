@@ -79,6 +79,28 @@ resource prmOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-0
   }
 }
 
+resource oauthAuthorizationServerOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  parent: purviewMcpApi
+  name: 'purview-mcp-oauth-authorization-server'
+  properties: {
+    displayName: 'Purview MCP OAuth Authorization Server Metadata'
+    method: 'GET'
+    urlTemplate: '/.well-known/oauth-authorization-server'
+    description: 'OAuth authorization server metadata for Purview MCP clients'
+  }
+}
+
+resource oauthOpenIdConfigurationOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  parent: purviewMcpApi
+  name: 'purview-mcp-oauth-openid-configuration'
+  properties: {
+    displayName: 'Purview MCP OpenID Configuration'
+    method: 'GET'
+    urlTemplate: '/.well-known/openid-configuration'
+    description: 'OpenID configuration metadata for Purview MCP clients'
+  }
+}
+
 // ── PRM operation policy（回傳 purview-mcp 專屬 resource URL）────────────────
 
 resource prmPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
@@ -87,5 +109,23 @@ resource prmPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@202
   properties: {
     format: 'rawxml'
     value: loadTextContent('purview-mcp-prm.policy.xml')
+  }
+}
+
+resource oauthAuthorizationServerPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
+  parent: oauthAuthorizationServerOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('purview-mcp-oauth-authorization-server.policy.xml')
+  }
+}
+
+resource oauthOpenIdConfigurationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
+  parent: oauthOpenIdConfigurationOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('purview-mcp-oauth-openid-configuration.policy.xml')
   }
 }

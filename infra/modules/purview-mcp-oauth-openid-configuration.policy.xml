@@ -1,0 +1,29 @@
+<policies>
+    <inbound>
+        <return-response>
+            <set-status code="200" reason="OK" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-header name="Cache-Control" exists-action="override">
+                <value>public, max-age=3600</value>
+            </set-header>
+            <set-body>@{
+                return JObject.FromObject(new {
+                    issuer = "{{APIMGatewayURL}}/purview-mcp",
+                    authorization_endpoint = "{{McpOAuthBaseUrl}}/authorize",
+                    token_endpoint = "{{McpOAuthBaseUrl}}/token",
+                    registration_endpoint = "{{McpOAuthBaseUrl}}/register",
+                    jwks_uri = "https://login.microsoftonline.com/{{McpTenantId}}/discovery/v2.0/keys",
+                    response_types_supported = new[] { "code" },
+                    subject_types_supported = new[] { "pairwise" },
+                    id_token_signing_alg_values_supported = new[] { "RS256" },
+                    grant_types_supported = new[] { "authorization_code", "refresh_token" },
+                    code_challenge_methods_supported = new[] { "S256" },
+                    token_endpoint_auth_methods_supported = new[] { "none" },
+                    scopes_supported = new[] { "{{McpScope}}", "offline_access", "openid", "profile" }
+                }).ToString();
+            }</set-body>
+        </return-response>
+    </inbound>
+</policies>

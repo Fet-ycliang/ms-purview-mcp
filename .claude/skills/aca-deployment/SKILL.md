@@ -123,12 +123,13 @@ az apim nv list --resource-group <rg> --service-name <apim> -o table
 ### azd APIM 部署
 
 ```bash
+azd env set AZURE_DEPLOY_APIM_MCP_API true
 azd env set AZURE_APIM_NAME <apim-name>
-azd env set MCP_APIM_RESOURCE_TENANT_ID <tenant>
-azd env set MCP_APIM_RESOURCE_CLIENT_ID <client-id>
-azd env set MCP_CLAUDE_CLIENT_ID <claude-client-id>
-azd deploy
+azd provision
 ```
+
+> 目前這個 repo 的 APIM Phase 3 是**追加 `purview-mcp` API 到既有 APIM service**，不是重建另一套 `mcp-oauth`。  
+> 若 `outlook-email` 那套 MCP / OAuth facade 已經正常，`purview-mcp` 會直接複用既有 Named Values，並沿用 `mcp-oauth` 的 authorize / token / register 端點。
 
 ### APIM expose 建議
 
@@ -149,6 +150,15 @@ azd deploy
 - delegated / application token 分流
 - `McpAllowedCallerAppIdsCsv` allowlist
 - APIM managed identity 對 backend 重新取 token
+
+目前已驗證的 APIM 行為：
+
+- `GET /purview-mcp/.well-known/oauth-protected-resource` 回傳 Purview MCP 專屬 resource metadata
+- 未帶 token 呼叫 `GET/POST /purview-mcp/mcp` 會回 `401`，並指向 `GET /purview-mcp/.well-known/oauth-protected-resource`
+- 該 resource metadata 文件本身會宣告 `authorization_servers=["https://<apim>/purview-mcp"]`
+- `GET /purview-mcp/.well-known/oauth-authorization-server`、`GET /purview-mcp/.well-known/openid-configuration` 正常
+- 上述兩份 metadata 內的 `authorization_endpoint` / `token_endpoint` / `registration_endpoint` 仍導向既有 `mcp-oauth`
+- `GET /mcp-oauth/authorize` 會要求 PKCE；補上 `code_challenge` 後，會 redirect 到 Entra `/authorize`
 
 若最終要把 APIM 作為唯一入口，ACA 需要再收斂成 internal/private ingress，或至少補上額外網路限制，否則仍可能繞過 APIM 直打 ACA FQDN。
 

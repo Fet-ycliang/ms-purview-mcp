@@ -12,7 +12,7 @@
                 return JsonConvert.SerializeObject(new {
                     resource = "{{APIMGatewayURL}}/purview-mcp/mcp",
                     authorization_servers = new[] {
-                        "{{McpOAuthBaseUrl}}"
+                        "{{APIMGatewayURL}}/purview-mcp"
                     },
                     bearer_methods_supported = new[] {
                         "header"
