@@ -64,11 +64,11 @@ azd provision
 
 ### GitHub Actions 自動上版
 
-`main` 與 `develop` 分支採用 AuroraOps 同款的 ACR / ACA 流程：
+目前採用 AuroraOps 同款的 ACR / ACA 流程，但只在 `main` 自動發動：
 
-- `develop` push：建置 `ms-purview-mcp` image，推送 `develop` 與 `develop-YYYYMMDD-sha7`，**不自動 rollout ACA**
+- `develop`：**不觸發** GitHub deploy workflow；unit tests 改由 **local commit 前** 的 pre-commit hook 執行
 - `main` push：建置 `ms-purview-mcp` image，推送 `latest` 與 `YYYYMMDD-sha7`，再自動 rollout `ms-purview-mcp-ca`
-- 這支 workflow 現在是 **純 deploy pipeline**，不在 build 前執行 unit tests；unit tests 改成 **local commit 前** 先跑
+- 這支 workflow 現在是 **純 deploy pipeline**，不在 build 前執行 unit tests
 - rollout 完成條件：`latestRevisionName` 與 `latestReadyRevisionName` 一致，且 ACA 目前 image 已切到本次日期版 tag
 
 Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
@@ -131,7 +131,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 #### 部署踩坑與注意事項
 
-- 先把 workflow 邊界講清楚：**develop = build / push image，main = build / push + rollout ACA**。這支 workflow 是 deploy pipeline，不是純 CI；unit tests 應在 **local commit 前** 先完成
+- 先把 workflow 邊界講清楚：**develop = local pre-commit 測試，main = build / push + rollout ACA**。這支 workflow 是 deploy pipeline，不是純 CI
 - `AZURE_CREDENTIALS` 主路徑改用 **Azure CLI login** 後，比直接走 `azure/login` 更穩；主要原因不是功能差異，而是可避開 deploy 主流程持續出現的 Node 20 action 警告
 - `az containerapp update` 若遇到 Azure Resource Manager 暫時性 503，Azure CLI 可能把 HTML 錯誤頁誤判成 JSON，最後噴出 `JSONDecodeError`；這通常不是憑證錯或 image 錯，應優先用 retry 吸收
 - deploy workflow 已改成 **直接 bypass unit tests**，避免 build 太晚才被 runner / 內網環境卡住；unit tests 請在 **local commit 前** 執行，例如：`python -m pytest tests/ -m "not e2e" -v --tb=short`
@@ -153,7 +153,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - GitHub Actions 的 `uv run` 會直接依 `uv.lock` 內的來源抓套件；若 lock 是由公司 Nexus 產生，runner 會因 DNS 無法解析而失敗。CI 測試應改用 `uv export --frozen` 匯出 requirements，再用 `pip --isolated -i https://pypi.org/simple` 安裝
 - GitHub Actions runner 無法直接打公司內網 Databricks；**unit tests 不應依賴 Databricks 連線**，必須以 mock / fake data 驗證邏輯
 - `tests/test_e2e.py` 需要真實 Purview / Databricks / Entra 憑證與外部服務可用性；e2e 請改在本機或手動流程執行
-- 由於 deploy workflow 已 bypass 測試，`tests/**` 也不再列入這支 workflow 的觸發條件；test-only 變更是否正確，應在 **local commit 前** 先驗證
+- 由於 deploy workflow 只在 `main` 發動，`tests/**` 也不再列入這支 workflow 的觸發條件；test-only 變更是否正確，應在 **local commit 前** 先驗證
 - `az containerapp update` 偶發會遇到 Azure Resource Manager 503，且 Azure CLI 會把 HTML 錯誤頁誤當 JSON 解析而爆 `JSONDecodeError`；workflow 已補 retry 來吸收這種暫時性錯誤
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，但要排除 `.azure`，避免 secrets 被送進 remote build
 - ACR remote build 無法解析公司內網 Nexus 時，Docker build 要走 public PyPI；不要反過來改壞本機 / 公司 proxy 的開發設定
