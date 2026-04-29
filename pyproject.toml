@@ -34,3 +34,6 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "e2e: 需要真實 Purview、Databricks 與 Entra 憑證的整合測試",
+]

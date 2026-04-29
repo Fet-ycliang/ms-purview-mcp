@@ -89,7 +89,7 @@ jobs:
           python -m pip install --isolated -i https://pypi.org/simple --no-deps -e .
 
       - name: Run tests
-        run: python -m pytest tests/ -v --tb=short
+        run: python -m pytest tests/ -m "not e2e" -v --tb=short
         env:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}

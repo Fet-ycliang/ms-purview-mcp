@@ -170,6 +170,7 @@ Image naming：
 - `AZURE_CONTAINER_REGISTRY_ENDPOINT` 必須明確存在，否則 `azd deploy` 或 workflow remote build 可能無法判斷 registry endpoint
 - GitHub Actions runner 已逐步從 Node 20 遷移到 Node 24；`actions/checkout`、`actions/setup-python` 等 JavaScript action 需使用 Node 24 相容版本（目前採 `v6`）
 - GitHub Actions 若直接用 `uv run` 執行測試，會依 `uv.lock` 中的來源抓套件；當 lock 內是公司 Nexus URL 時，GitHub runner 會解析失敗。CI 應改成 `uv export --frozen` 後，用 `pip --isolated -i https://pypi.org/simple` 安裝測試依賴
+- `tests/test_e2e.py` 屬於真實整合測試，依賴外部 Purview / Databricks / Entra 環境；GitHub workflow 預設只跑 `not e2e`，避免把外部服務波動當成 build 失敗
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，同時排除 `.azure` 避免 azd secrets 被送進 ACR build
 - ACR remote build 無法存取公司內網套件 proxy 時，Docker build 要改走 public PyPI；不要直接把本機/公司 proxy 設定硬改成對外版本
 - APIM API path `/purview-mcp` 不能與 outlook-email 的 `/` 衝突，部署前先確認
