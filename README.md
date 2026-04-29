@@ -126,7 +126,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 - 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
 - 目前已比照 AuroraOps 把 deploy target 直接固定在 workflow，不再依賴 GitHub Variables；若未來要改 ACR / RG / ACA 名稱，請直接改 workflow env
-- GitHub Actions 的 Azure 登入現在採 **多模式 fallback**：`AZURE_CREDENTIALS` 優先，其次 `AZURE_DEPLOY_*` / legacy `AZURE_*` 的 service principal secret login，最後才是 OIDC
+- GitHub Actions 的 Azure 登入現在採 **多模式 fallback**：`AZURE_CREDENTIALS` 主路徑直接用 Azure CLI login，其次 `AZURE_DEPLOY_*` / legacy `AZURE_*` 的 service principal secret login，最後才是 OIDC
 - 若 workflow 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。處理方式二選一：保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 secret login，或在 Entra App 補上對應 branch 的 federated credential
 - 若你要處理 cross-tenant，**不要**再把部署 SP 和 Purview runtime SP 共用同一組 `AZURE_*` GitHub secrets。請改成 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離
 - GitHub deploy workflow 現在只需要 **`AZURE_CREDENTIALS` 這一個 secret** 就能完成 build / push / rollout；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 不需要放在 GitHub
@@ -138,10 +138,12 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `UC_CATALOGS` 在 azd / `.env` 層請用逗號分隔字串，例如 `prod_catalog,dev_catalog`；不要直接塞 JSON 陣列
 - `azd provision` 會真的建資源，不是單純驗證；初次建立 ACA 需先用 public bootstrap image，否則會卡在 ACR 尚未有 `latest`
 - GitHub workflow 目前已固定使用 `fetimageacr.azurecr.io`；只有本機 `azd` 或特殊 registry endpoint 情境才需要另外設定 `AZURE_CONTAINER_REGISTRY_ENDPOINT`
-- GitHub Actions JavaScript actions 已逐步淘汰 Node 20；目前 workflow 已改成 `azure/login@v2`，並在 workflow env 設定 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`
+- GitHub Actions JavaScript actions 已逐步淘汰 Node 20；目前 `AZURE_CREDENTIALS` 主路徑已改用 Azure CLI login，避免 `azure/login` 的 Node 20 警告影響主要 deploy 流程；fallback/OIDC 路徑則保留 `azure/login@v2`
 - GitHub Actions 的 `uv run` 會直接依 `uv.lock` 內的來源抓套件；若 lock 是由公司 Nexus 產生，runner 會因 DNS 無法解析而失敗。CI 測試應改用 `uv export --frozen` 匯出 requirements，再用 `pip --isolated -i https://pypi.org/simple` 安裝
+- GitHub Actions runner 無法直接打公司內網 Databricks；**unit tests 不應依賴 Databricks 連線**，必須以 mock / fake data 驗證邏輯
 - `tests/test_e2e.py` 需要真實 Purview / Databricks / Entra 憑證與外部服務可用性；GitHub workflow 預設只跑 `not e2e` 的 unit tests，e2e 請改在本機或手動流程執行
 - workflow `paths` 記得包含 `tests/**`；否則你只修測試時，GitHub Actions 不會重跑，容易誤判「明明修好了但 CI 還停在舊錯誤」
+- `az containerapp update` 偶發會遇到 Azure Resource Manager 503，且 Azure CLI 會把 HTML 錯誤頁誤當 JSON 解析而爆 `JSONDecodeError`；workflow 已補 retry 來吸收這種暫時性錯誤
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，但要排除 `.azure`，避免 secrets 被送進 remote build
 - ACR remote build 無法解析公司內網 Nexus 時，Docker build 要走 public PyPI；不要反過來改壞本機 / 公司 proxy 的開發設定
 - 若 secret 曾直接貼在對話、終端或 commit 歷史中，應視為外洩並立即輪替

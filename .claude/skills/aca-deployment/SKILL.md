@@ -161,7 +161,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
 - `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
 - Azure 登入採多模式 fallback：
-  - `AZURE_CREDENTIALS` 存在時，優先走 AuroraOps 風格的 creds JSON login
+  - `AZURE_CREDENTIALS` 存在時，優先走 AuroraOps 風格的 Azure CLI login
   - `AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，workflow 走 service principal secret login
   - deploy secret 不存在時，workflow 才走 GitHub OIDC
 - 目前 deploy target 已比照 AuroraOps 固定在 workflow env，不再依賴 GitHub Variables
@@ -202,10 +202,12 @@ Image naming：
 - `USE_HTTP=true` 必須在容器環境變數中設定，否則 server 會跑 stdio mode 然後立即退出
 - ACA `ingress.targetPort` 必須與 `PORT` 環境變數一致（8080）
 - GitHub workflow 目前已固定使用 `fetimageacr.azurecr.io`；只有 `azd` 或特殊 registry endpoint 情境才需要另外設定 `AZURE_CONTAINER_REGISTRY_ENDPOINT`
-- GitHub Actions runner 已逐步從 Node 20 遷移到 Node 24；workflow 已改成 `azure/login@v2`，並設定 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`
+- GitHub Actions runner 已逐步從 Node 20 遷移到 Node 24；`AZURE_CREDENTIALS` 主路徑已改用 Azure CLI login，避免 `azure/login` 的 Node 20 警告干擾主要 deploy 流程；fallback / OIDC 路徑仍保留 `azure/login@v2`
 - GitHub Actions 若直接用 `uv run` 執行測試，會依 `uv.lock` 中的來源抓套件；當 lock 內是公司 Nexus URL 時，GitHub runner 會解析失敗。CI 應改成 `uv export --frozen` 後，用 `pip --isolated -i https://pypi.org/simple` 安裝測試依賴
+- GitHub Actions runner 無法直接打公司內網 Databricks；**unit tests 不應依賴 Databricks 連線**，必須改用 mock / fake data 驗證邏輯
 - `tests/test_e2e.py` 屬於真實整合測試，依賴外部 Purview / Databricks / Entra 環境；GitHub workflow 預設只跑 `not e2e`，避免把外部服務波動當成 build 失敗
 - workflow `paths` 要記得包含 `tests/**`，不然 test-only 修正不會觸發 GitHub Actions
+- `az containerapp update` 偶發會遇到 Azure Resource Manager 503，且 Azure CLI 會把 HTML 錯誤頁誤當 JSON 解析而爆 `JSONDecodeError`；workflow 應補 retry 吸收這種暫時性錯誤
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，同時排除 `.azure` 避免 azd secrets 被送進 ACR build
 - ACR remote build 無法存取公司內網套件 proxy 時，Docker build 要改走 public PyPI；不要直接把本機/公司 proxy 設定硬改成對外版本
 - APIM API path `/purview-mcp` 不能與 outlook-email 的 `/` 衝突，部署前先確認
