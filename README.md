@@ -84,11 +84,14 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 | 名稱 | 說明 |
 |------|------|
+| `AZURE_CREDENTIALS` | **選用**。AuroraOps 風格單一 JSON secret，內容可直接使用 `az ad sp create-for-rbac --json-auth` 輸出；若有設定，workflow 會優先使用這個登入 Azure |
 | `AZURE_DEPLOY_CLIENT_ID` | **建議使用**。GitHub 部署專用的 Service Principal Client ID |
 | `AZURE_DEPLOY_TENANT_ID` | **建議使用**。GitHub 部署專用 tenant ID |
 | `AZURE_DEPLOY_CLIENT_SECRET` | **建議使用**。GitHub 部署專用 secret；若保留此 secret，workflow 會走 service principal secret login |
 
 > 目前 GitHub **deploy workflow 不會再讀取** `PURVIEW_*` / `DATABRICKS_*`。這些是 **azd provision / ACA runtime / 本機 `.env`** 用的執行期設定，不是 rollout image 時要重新提供的 secrets。
+>
+> Azure 登入優先序目前是：`AZURE_CREDENTIALS` → `AZURE_DEPLOY_*` → legacy `AZURE_*` → OIDC。
 >
 > workflow 仍保留 `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` 作為 **legacy fallback**，避免現有設定立刻失效。但要處理 cross-tenant，請改用 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離。
 >
@@ -118,7 +121,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 #### 部署踩坑與注意事項
 
 - 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
-- GitHub Actions 的 Azure 登入現在採 **雙模式**：`AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，直接走 service principal secret login；只有 deploy secret 都不存在時，workflow 才會改走 OIDC
+- GitHub Actions 的 Azure 登入現在採 **多模式 fallback**：`AZURE_CREDENTIALS` 優先，其次 `AZURE_DEPLOY_*` / legacy `AZURE_*` 的 service principal secret login，最後才是 OIDC
 - 若 workflow 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。處理方式二選一：保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 secret login，或在 Entra App 補上對應 branch 的 federated credential
 - 若你要處理 cross-tenant，**不要**再把部署 SP 和 Purview runtime SP 共用同一組 `AZURE_*` GitHub secrets。請改成 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離
 - GitHub deploy workflow 現在只需要 **3 個 repo variables**（`AZURE_SUBSCRIPTION_ID`、`AZURE_RESOURCE_GROUP_NAME`、`AZURE_CONTAINER_REGISTRY_NAME`）與 **deploy secrets**；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 不需要放在 GitHub
