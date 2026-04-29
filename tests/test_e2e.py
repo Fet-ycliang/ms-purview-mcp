@@ -4,12 +4,16 @@ E2E 測試：直接呼叫 Purview API，驗證每個 skill 的連線與回傳格
 執行：uv run pytest tests/test_e2e.py -v
 """
 import pytest
-import asyncio
+import pytest_asyncio
+
+from purview_mcp.cache import reset_cache_manager
 from purview_mcp.models import Settings
 from purview_mcp.auth import get_token
-from purview_mcp.client.purview import PurviewClient
+from purview_mcp.client.purview import PurviewClient, reset_purview_client
 from purview_mcp.models import LineageResult
 from purview_mcp.skills import discovery, glossary, lineage, policy, uc_sync
+
+pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture(scope="session")
@@ -17,9 +21,23 @@ def settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
 
 
-@pytest.fixture(scope="session")
-def client(settings: Settings) -> PurviewClient:
-    return PurviewClient(settings)
+@pytest.fixture(autouse=True)
+def _reset_singletons():
+    """每個 e2e test 前後都重置 singleton，避免跨事件迴圈重用 AsyncClient。"""
+    reset_cache_manager()
+    reset_purview_client()
+    yield
+    reset_cache_manager()
+    reset_purview_client()
+
+
+@pytest_asyncio.fixture
+async def client(settings: Settings) -> PurviewClient:
+    client = PurviewClient(settings)
+    try:
+        yield client
+    finally:
+        await client.aclose()
 
 
 # ──────────────────────────────────────────

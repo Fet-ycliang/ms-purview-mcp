@@ -119,6 +119,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - 若走 `azd deploy` 或 workflow build，請明確提供 `AZURE_CONTAINER_REGISTRY_ENDPOINT`，否則 remote build 可能找不到 registry endpoint
 - GitHub Actions JavaScript actions 已逐步淘汰 Node 20；`actions/checkout` 與 `actions/setup-python` 應維持在 `v6`，避免新 runner 切到 Node 24 後出現 deprecation warning 或執行失敗
 - GitHub Actions 的 `uv run` 會直接依 `uv.lock` 內的來源抓套件；若 lock 是由公司 Nexus 產生，runner 會因 DNS 無法解析而失敗。CI 測試應改用 `uv export --frozen` 匯出 requirements，再用 `pip --isolated -i https://pypi.org/simple` 安裝
+- `tests/test_e2e.py` 需要真實 Purview / Databricks / Entra 憑證與外部服務可用性；GitHub workflow 預設只跑 `not e2e` 的 unit tests，e2e 請改在本機或手動流程執行
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，但要排除 `.azure`，避免 secrets 被送進 remote build
 - ACR remote build 無法解析公司內網 Nexus 時，Docker build 要走 public PyPI；不要反過來改壞本機 / 公司 proxy 的開發設定
 - 若 secret 曾直接貼在對話、終端或 commit 歷史中，應視為外洩並立即輪替
