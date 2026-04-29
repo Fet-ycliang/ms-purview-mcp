@@ -158,7 +158,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 參考 AuroraOps 的 ACR / ACA 自動上版模式：
 
-- `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
+- `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR，但**不自動 rollout ACA**
 - `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
 - Azure 登入採多模式 fallback：
   - `AZURE_CREDENTIALS` 存在時，優先走 AuroraOps 風格的 Azure CLI login
@@ -188,6 +188,9 @@ Image naming：
 
 ## 已知陷阱
 
+- 先把 workflow 邊界講清楚：**develop = build / push image，main = build / push + rollout ACA**。這支 workflow 是 deploy pipeline，不是純 CI；若未來只想在 develop 跑測試、不想推 image，應另拆一支一般 CI workflow
+- `AZURE_CREDENTIALS` 主路徑改用 **Azure CLI login** 後，比直接走 `azure/login` 更穩；主要不是功能差異，而是可避開 deploy 主流程持續出現的 Node 20 action 警告
+- `az containerapp update` 若遇到 Azure Resource Manager 暫時性 503，Azure CLI 可能把 HTML 錯誤頁誤判成 JSON，最後噴出 `JSONDecodeError`；這通常不是憑證錯或 image 錯，應優先用 retry 吸收
 - GitHub Actions 目前讀的是 **Repository-level** Variables / Secrets；若 GitHub UI 要求先建立 `Environment Name`，代表你進到 Environment 層級，不是本 workflow 使用的位置
 - 目前 GitHub deploy workflow 只需要 **`AZURE_CREDENTIALS` 這一個 secret**；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 這些 runtime 設定不應再放到 GitHub deploy workflow
 - 若 GitHub Actions 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。可先保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 service principal secret login，或補上 branch 對應的 federated credential
