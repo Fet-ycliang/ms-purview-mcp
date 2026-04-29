@@ -9,15 +9,12 @@ name: Build & Deploy purview-mcp
 # 2. 若設定 AuroraOps 風格的 AZURE_CREDENTIALS（az ad sp create-for-rbac --json-auth 輸出的完整 JSON），workflow 會優先走 creds JSON login
 # 3. 若未設定 AZURE_CREDENTIALS，但已在 Entra App 設定 GitHub federated credential，可不設定 AZURE_DEPLOY_CLIENT_SECRET，workflow 會走 OIDC
 # 4. 若尚未設定 federated credential，保留 AZURE_DEPLOY_CLIENT_SECRET，workflow 會自動改走 service principal secret login
-# 5. Repository Variables 至少需設定：
-#    - AZURE_SUBSCRIPTION_ID
-#    - AZURE_RESOURCE_GROUP_NAME
-#    - AZURE_CONTAINER_REGISTRY_NAME
+# 5. 目前比照 AuroraOps，deploy target 直接固定在 workflow env，不再依賴 GitHub Variables
 # 6. Repository Secrets 至少需設定：
-#    - AZURE_CREDENTIALS（選用；AuroraOps 風格單一 JSON secret）
-#    - AZURE_DEPLOY_CLIENT_ID（未設定時回退到既有 AZURE_CLIENT_ID）
-#    - AZURE_DEPLOY_TENANT_ID（未設定時回退到既有 AZURE_TENANT_ID）
-#    - AZURE_DEPLOY_CLIENT_SECRET（未完成 OIDC federation 時必填；未設定時回退到既有 AZURE_CLIENT_SECRET）
+#    - AZURE_CREDENTIALS（建議；AuroraOps 風格單一 JSON secret）
+#    - AZURE_DEPLOY_CLIENT_ID（選用；未設定 AZURE_CREDENTIALS 時才需要）
+#    - AZURE_DEPLOY_TENANT_ID（選用；未設定 AZURE_CREDENTIALS 時才需要）
+#    - AZURE_DEPLOY_CLIENT_SECRET（選用；未完成 OIDC federation 時才需要）
 # 7. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
 
 on:
@@ -49,6 +46,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   PYTHON_VERSION: '3.12'
   AZURE_CORE_OUTPUT: none
   AZURE_CREDENTIALS_JSON: ${{ secrets.AZURE_CREDENTIALS }}
@@ -56,11 +54,12 @@ env:
   DEPLOY_AZURE_TENANT_ID: ${{ secrets.AZURE_DEPLOY_TENANT_ID != '' && secrets.AZURE_DEPLOY_TENANT_ID || secrets.AZURE_TENANT_ID }}
   DEPLOY_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && secrets.AZURE_DEPLOY_CLIENT_SECRET || secrets.AZURE_CLIENT_SECRET }}
   AZURE_LOGIN_MODE: ${{ (secrets.AZURE_CREDENTIALS != '' && 'azure-credentials') || (secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && 'client-secret') || (secrets.AZURE_CLIENT_SECRET != '' && 'client-secret') || 'oidc' }}
-  ACR_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
-  ACR_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY_ENDPOINT != '' && vars.AZURE_CONTAINER_REGISTRY_ENDPOINT || format('{0}.azurecr.io', vars.AZURE_CONTAINER_REGISTRY_NAME) }}
-  ACA_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
-  ACA_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_CONTAINER_APP_NAME || 'ms-purview-mcp-ca' }}
-  ACA_CONTAINER_NAME: ${{ vars.ACA_CONTAINER_NAME != '' && vars.ACA_CONTAINER_NAME || 'main' }}
+  AZURE_SUBSCRIPTION_ID: '1d077479-3fc2-4f1f-82b4-0a5789393fd2'
+  ACR_NAME: fetimageacr
+  ACR_REGISTRY: fetimageacr.azurecr.io
+  ACA_RESOURCE_GROUP: apim-app-bst-rg
+  ACA_NAME: ms-purview-mcp-ca
+  ACA_CONTAINER_NAME: main
   IMAGE_NAME: ms-purview-mcp
 
 jobs:
@@ -120,8 +119,8 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${{ vars.AZURE_SUBSCRIPTION_ID }}" ]; then
-            echo "::error::缺少 GitHub variable: AZURE_SUBSCRIPTION_ID"
+          if [ -z "${{ env.AZURE_SUBSCRIPTION_ID }}" ]; then
+            echo "::error::workflow env 缺少 AZURE_SUBSCRIPTION_ID"
             exit 1
           fi
 
@@ -130,23 +129,23 @@ jobs:
             exit 1
           fi
 
-          if ! printf '%s' "${{ vars.AZURE_SUBSCRIPTION_ID }}" | grep -Eq '^[0-9a-fA-F-]{36}$'; then
-            echo "::warning::AZURE_SUBSCRIPTION_ID 目前不是 GUID。Service principal secret login 仍會嘗試用 az account set 處理，但若要走 OIDC，建議改成 Azure Subscription GUID。"
+          if ! printf '%s' "${{ env.AZURE_SUBSCRIPTION_ID }}" | grep -Eq '^[0-9a-fA-F-]{36}$'; then
+            echo "::warning::workflow env AZURE_SUBSCRIPTION_ID 目前不是 GUID。Service principal secret login 仍會嘗試用 az account set 處理，但若要走 OIDC，建議改成 Azure Subscription GUID。"
           fi
 
       - name: Azure login (AZURE_CREDENTIALS)
         if: ${{ env.AZURE_LOGIN_MODE == 'azure-credentials' }}
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        uses: azure/login@v2
         with:
           creds: ${{ env.AZURE_CREDENTIALS_JSON }}
 
       - name: Azure login (OIDC)
         if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        uses: azure/login@v2
         with:
           client-id: ${{ env.DEPLOY_AZURE_CLIENT_ID }}
           tenant-id: ${{ env.DEPLOY_AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login (Service Principal secret)
         if: ${{ env.AZURE_LOGIN_MODE == 'client-secret' }}
@@ -154,7 +153,7 @@ jobs:
           AZURE_CLIENT_ID: ${{ env.DEPLOY_AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ env.DEPLOY_AZURE_CLIENT_SECRET }}
           AZURE_TENANT_ID: ${{ env.DEPLOY_AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ env.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
           LOGIN_ERROR_FILE="$(mktemp)"
@@ -240,17 +239,17 @@ jobs:
     steps:
       - name: Azure login (AZURE_CREDENTIALS)
         if: ${{ env.AZURE_LOGIN_MODE == 'azure-credentials' }}
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        uses: azure/login@v2
         with:
           creds: ${{ env.AZURE_CREDENTIALS_JSON }}
 
       - name: Azure login (OIDC)
         if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        uses: azure/login@v2
         with:
           client-id: ${{ env.DEPLOY_AZURE_CLIENT_ID }}
           tenant-id: ${{ env.DEPLOY_AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login (Service Principal secret)
         if: ${{ env.AZURE_LOGIN_MODE == 'client-secret' }}
@@ -258,7 +257,7 @@ jobs:
           AZURE_CLIENT_ID: ${{ env.DEPLOY_AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ env.DEPLOY_AZURE_CLIENT_SECRET }}
           AZURE_TENANT_ID: ${{ env.DEPLOY_AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ env.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
           LOGIN_ERROR_FILE="$(mktemp)"

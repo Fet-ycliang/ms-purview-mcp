@@ -74,20 +74,24 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 #### GitHub Repository Variables
 
-| 名稱 | 建議值 |
-|------|--------|
-| `AZURE_SUBSCRIPTION_ID` | 你的 Azure Subscription GUID，建議不要填 subscription display name |
-| `AZURE_RESOURCE_GROUP_NAME` | `apim-app-bst-rg` |
-| `AZURE_CONTAINER_REGISTRY_NAME` | `fetimageacr` |
+目前 **不需要** GitHub Repository Variables。
+
+目前 workflow 已比照 AuroraOps 固定 deploy target：
+
+- Subscription：`1d077479-3fc2-4f1f-82b4-0a5789393fd2`
+- Resource Group：`apim-app-bst-rg`
+- ACR：`fetimageacr`
+- ACA：`ms-purview-mcp-ca`
+- Container：`main`
 
 #### GitHub Repository Secrets
 
 | 名稱 | 說明 |
 |------|------|
-| `AZURE_CREDENTIALS` | **選用**。AuroraOps 風格單一 JSON secret，內容可直接使用 `az ad sp create-for-rbac --json-auth` 輸出；若有設定，workflow 會優先使用這個登入 Azure |
-| `AZURE_DEPLOY_CLIENT_ID` | **建議使用**。GitHub 部署專用的 Service Principal Client ID |
-| `AZURE_DEPLOY_TENANT_ID` | **建議使用**。GitHub 部署專用 tenant ID |
-| `AZURE_DEPLOY_CLIENT_SECRET` | **建議使用**。GitHub 部署專用 secret；若保留此 secret，workflow 會走 service principal secret login |
+| `AZURE_CREDENTIALS` | **建議使用**。AuroraOps 風格單一 JSON secret，內容可直接使用 `az ad sp create-for-rbac --json-auth` 輸出；若有設定，workflow 會優先使用這個登入 Azure |
+| `AZURE_DEPLOY_CLIENT_ID` | 選用。只有你不用 `AZURE_CREDENTIALS`、但想走 OIDC 或分離式 deploy secret 時才需要 |
+| `AZURE_DEPLOY_TENANT_ID` | 選用。只有你不用 `AZURE_CREDENTIALS`、但想走 OIDC 或分離式 deploy secret 時才需要 |
+| `AZURE_DEPLOY_CLIENT_SECRET` | 選用。只有你不用 `AZURE_CREDENTIALS`，且還沒完成 OIDC federation 時才需要 |
 
 > 目前 GitHub **deploy workflow 不會再讀取** `PURVIEW_*` / `DATABRICKS_*`。這些是 **azd provision / ACA runtime / 本機 `.env`** 用的執行期設定，不是 rollout image 時要重新提供的 secrets。
 >
@@ -121,10 +125,11 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 #### 部署踩坑與注意事項
 
 - 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
+- 目前已比照 AuroraOps 把 deploy target 直接固定在 workflow，不再依賴 GitHub Variables；若未來要改 ACR / RG / ACA 名稱，請直接改 workflow env
 - GitHub Actions 的 Azure 登入現在採 **多模式 fallback**：`AZURE_CREDENTIALS` 優先，其次 `AZURE_DEPLOY_*` / legacy `AZURE_*` 的 service principal secret login，最後才是 OIDC
 - 若 workflow 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。處理方式二選一：保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 secret login，或在 Entra App 補上對應 branch 的 federated credential
 - 若你要處理 cross-tenant，**不要**再把部署 SP 和 Purview runtime SP 共用同一組 `AZURE_*` GitHub secrets。請改成 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離
-- GitHub deploy workflow 現在只需要 **3 個 repo variables**（`AZURE_SUBSCRIPTION_ID`、`AZURE_RESOURCE_GROUP_NAME`、`AZURE_CONTAINER_REGISTRY_NAME`）與 **deploy secrets**；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 不需要放在 GitHub
+- GitHub deploy workflow 現在只需要 **`AZURE_CREDENTIALS` 這一個 secret** 就能完成 build / push / rollout；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 不需要放在 GitHub
 - `azd env new` / `azd provision` 必須在 repo 根目錄執行；如果不在 `azure.yaml` 所在目錄，會出現 `no project exists`
 - `azd env set` 語法是 `azd env set KEY VALUE`，不要寫成 `KEY=VALUE`
 - `AZURE_ENV_NAME` 是 azd 環境名；`AZURE_CAE_NAME` 是既有 Container Apps Environment 名稱，兩者不要混用
@@ -132,8 +137,8 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `AZURE_SUBSCRIPTION_ID` 建議填 Azure Subscription GUID。雖然 workflow 的 secret login 會嘗試用 `az account set --subscription` 接受名稱，但 OIDC 路徑仍應使用真正的 subscription GUID
 - `UC_CATALOGS` 在 azd / `.env` 層請用逗號分隔字串，例如 `prod_catalog,dev_catalog`；不要直接塞 JSON 陣列
 - `azd provision` 會真的建資源，不是單純驗證；初次建立 ACA 需先用 public bootstrap image，否則會卡在 ACR 尚未有 `latest`
-- GitHub workflow 會自動把 `AZURE_CONTAINER_REGISTRY_NAME` 推成 `<acr>.azurecr.io`；只有你不是標準 ACR endpoint，或本機 `azd` 需要自訂 registry endpoint 時，才需要額外設定 `AZURE_CONTAINER_REGISTRY_ENDPOINT`
-- GitHub Actions JavaScript actions 已逐步淘汰 Node 20；`actions/checkout` 與 `actions/setup-python` 應維持在 `v6`，避免新 runner 切到 Node 24 後出現 deprecation warning 或執行失敗
+- GitHub workflow 目前已固定使用 `fetimageacr.azurecr.io`；只有本機 `azd` 或特殊 registry endpoint 情境才需要另外設定 `AZURE_CONTAINER_REGISTRY_ENDPOINT`
+- GitHub Actions JavaScript actions 已逐步淘汰 Node 20；目前 workflow 已改成 `azure/login@v2`，並在 workflow env 設定 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`
 - GitHub Actions 的 `uv run` 會直接依 `uv.lock` 內的來源抓套件；若 lock 是由公司 Nexus 產生，runner 會因 DNS 無法解析而失敗。CI 測試應改用 `uv export --frozen` 匯出 requirements，再用 `pip --isolated -i https://pypi.org/simple` 安裝
 - `tests/test_e2e.py` 需要真實 Purview / Databricks / Entra 憑證與外部服務可用性；GitHub workflow 預設只跑 `not e2e` 的 unit tests，e2e 請改在本機或手動流程執行
 - workflow `paths` 記得包含 `tests/**`；否則你只修測試時，GitHub Actions 不會重跑，容易誤判「明明修好了但 CI 還停在舊錯誤」
