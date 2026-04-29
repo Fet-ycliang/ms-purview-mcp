@@ -66,7 +66,7 @@ azd provision
 
 `main` 與 `develop` 分支採用 AuroraOps 同款的 ACR / ACA 流程：
 
-- `develop` push：建置 `ms-purview-mcp` image，推送 `develop` 與 `develop-YYYYMMDD-sha7`
+- `develop` push：建置 `ms-purview-mcp` image，推送 `develop` 與 `develop-YYYYMMDD-sha7`，**不自動 rollout ACA**
 - `main` push：建置 `ms-purview-mcp` image，推送 `latest` 與 `YYYYMMDD-sha7`，再自動 rollout `ms-purview-mcp-ca`
 - rollout 完成條件：`latestRevisionName` 與 `latestReadyRevisionName` 一致，且 ACA 目前 image 已切到本次日期版 tag
 
@@ -124,6 +124,9 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 #### 部署踩坑與注意事項
 
+- 先把 workflow 邊界講清楚：**develop = build / push image，main = build / push + rollout ACA**。這支 workflow 是 deploy pipeline，不是純 CI；若未來只想在 develop 跑測試、不想推 image，應另拆一支一般 CI workflow
+- `AZURE_CREDENTIALS` 主路徑改用 **Azure CLI login** 後，比直接走 `azure/login` 更穩；主要原因不是功能差異，而是可避開 deploy 主流程持續出現的 Node 20 action 警告
+- `az containerapp update` 若遇到 Azure Resource Manager 暫時性 503，Azure CLI 可能把 HTML 錯誤頁誤判成 JSON，最後噴出 `JSONDecodeError`；這通常不是憑證錯或 image 錯，應優先用 retry 吸收
 - 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
 - 目前已比照 AuroraOps 把 deploy target 直接固定在 workflow，不再依賴 GitHub Variables；若未來要改 ACR / RG / ACA 名稱，請直接改 workflow env
 - GitHub Actions 的 Azure 登入現在採 **多模式 fallback**：`AZURE_CREDENTIALS` 主路徑直接用 Azure CLI login，其次 `AZURE_DEPLOY_*` / legacy `AZURE_*` 的 service principal secret login，最後才是 OIDC
