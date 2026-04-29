@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import json
+import os
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Optional
@@ -14,10 +15,15 @@ from .client.purview import get_purview_client
 from .models import Settings
 from .skills import discovery, glossary, lineage, policy, schema, uc_sync
 
-mcp = FastMCP("Purview", instructions=(
-    "提供 Microsoft Purview 資料治理工具，整合 Databricks Unity Catalog。"
-    "可搜尋資料資產、追蹤血緣、查詢詞彙規範、檢查 PII 標籤，以及同步 UC metadata。"
-))
+mcp = FastMCP(
+    "Purview",
+    instructions=(
+        "提供 Microsoft Purview 資料治理工具，整合 Databricks Unity Catalog。"
+        "可搜尋資料資產、追蹤血緣、查詢詞彙規範、檢查 PII 標籤，以及同步 UC metadata。"
+    ),
+    host="0.0.0.0",
+    port=int(os.environ.get("PORT", "8080")),
+)
 
 
 @lru_cache(maxsize=1)
@@ -325,7 +331,10 @@ def _shutdown() -> None:
 
 def main() -> None:
     atexit.register(_shutdown)
-    mcp.run()
+    if os.environ.get("USE_HTTP", "false").lower() == "true":
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

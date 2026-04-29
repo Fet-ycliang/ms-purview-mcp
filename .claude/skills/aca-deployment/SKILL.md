@@ -1,0 +1,174 @@
+---
+name: aca-deployment
+description: |
+  purview-mcp 的 ACA 部署指引。用於設定環境變數、azd 部署到 Azure Container Apps、
+  Entra ID app 註冊、APIM 界接，以及部署後驗證。
+  觸發詞："azd up", "Azure 部署", "ACA 部署", "deploy purview-mcp", "APIM 設定", "Entra 註冊"。
+---
+
+# purview-mcp ACA 部署指引
+
+此技能專門處理 `ms-purview-mcp` 的 ACA 部署步驟。
+
+## 架構
+
+```
+Claude Code / Databricks
+        ↓ HTTPS + OAuth
+    APIM（現有，API path: /purview-mcp）
+        ↓
+    ACA ms-purview-mcp-ca（external ingress, port 8080）
+        ↓
+  Purview REST API + Databricks Unity Catalog
+```
+
+## 主要檔案
+
+| 檔案 | 用途 |
+|------|------|
+| `Dockerfile` | Python/uv 多階段構建 |
+| `azure.yaml` | azd 入口設定（host: containerapp）|
+| `infra/main.bicep` | Bicep 主檔（resourceGroup scope）|
+| `infra/resources.bicep` | Container App + Managed Identity 定義 |
+| `infra/main.parameters.json` | 部署參數（含環境變數映射）|
+| `infra/modules/mcp-api.bicep` | APIM API 定義（Phase 3）|
+| `.github/workflows/deploy-purview-mcp-aca.yml` | CI/CD workflow |
+
+## 環境變數清單
+
+### ACA 環境變數（infra/resources.bicep 注入）
+
+| 名稱 | 來源 | 說明 |
+|------|------|------|
+| `USE_HTTP` | 硬寫 `true` | 啟用 streamable-http transport |
+| `PORT` | 硬寫 `8080` | 監聽 port |
+| `AZURE_TENANT_ID` | param | Entra tenant ID |
+| `AZURE_CLIENT_ID` | param | Service Principal client ID |
+| `AZURE_CLIENT_SECRET` | secret | SP client secret |
+| `PURVIEW_ACCOUNT_NAME` | param | Purview 帳號名稱（不含 .purview.azure.com）|
+| `DATABRICKS_HOST` | param | `https://<workspace>.azuredatabricks.net` |
+| `DATABRICKS_TOKEN` | secret | Databricks PAT token |
+| `UC_DEFAULT_CATALOG` | param | 預設 Unity Catalog catalog 名稱 |
+| `UC_CATALOGS` | param | azd 設定用逗號分隔字串，如 `prod,dev`；部署時會轉成 JSON 陣列 |
+| `AZURE_BOOTSTRAP_CONTAINER_IMAGE` | param | 初次 provision 用的 public image，預設 `mcr.microsoft.com/dotnet/samples:aspnetapp` |
+
+### azd 環境變數（.azure/<env>/.env）
+
+```bash
+AZURE_ENV_NAME=purview-mcp-dev
+AZURE_LOCATION=eastasia
+AZURE_RESOURCE_GROUP_NAME=rg-xxx
+AZURE_RESOURCE_NAME_STEM=ms-purview-mcp
+AZURE_CONTAINER_REGISTRY_NAME=fetimageacr
+AZURE_CONTAINER_REGISTRY_ENDPOINT=fetimageacr.azurecr.io
+AZURE_CAE_NAME=cae-fet-outlook-email-env
+AZURE_TENANT_ID=...
+AZURE_CLIENT_ID=...
+AZURE_CLIENT_SECRET=...
+PURVIEW_ACCOUNT_NAME=...
+DATABRICKS_HOST=...
+DATABRICKS_TOKEN=...
+UC_DEFAULT_CATALOG=prod_catalog
+UC_CATALOGS=prod_catalog,dev_catalog
+AZURE_BOOTSTRAP_CONTAINER_IMAGE=mcr.microsoft.com/dotnet/samples:aspnetapp
+```
+
+## Phase 1 + 2 部署流程
+
+```bash
+# 1. 登入
+azd auth login
+
+# 2. 建立環境
+azd env new purview-mcp-dev
+# 設定必要環境變數（見上方清單）
+
+# 3. 部署 infrastructure + container app
+azd up
+# 或分開執行：
+azd provision    # 只建 infra（先以 bootstrap image 建 ACA）
+azd deploy       # 本機 / 手動部署 image
+
+# 4. 驗證（ACA direct）
+curl -X POST https://<aca-fqdn>/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# 預期：10 個工具（search_data_assets, get_data_lineage, ...）
+```
+
+## Phase 3 APIM 界接
+
+### 事前確認（必做，避免影響 outlook-email）
+
+```bash
+# 讀取現有 APIM 所有 APIs
+az apim api list --resource-group <rg> --service-name <apim> -o table
+
+# 確認現有 Named Values（避免命名衝突）
+az apim nv list --resource-group <rg> --service-name <apim> -o table
+```
+
+### Entra ID App 註冊（手動）
+
+1. 在 Entra ID 建立「purview-mcp API」app registration
+   - Expose API → Add scope：`mcp.access`、`user_impersonation`
+   - App Role：`access_as_application`
+   - 記錄：`tenant_id`, `client_id`, `app_id_uri`
+
+2. Claude 公共用戶端（可重用 outlook-email 的）
+   - 確認 redirect_uri 含 `http://localhost`
+
+### azd APIM 部署
+
+```bash
+azd env set AZURE_APIM_NAME <apim-name>
+azd env set MCP_APIM_RESOURCE_TENANT_ID <tenant>
+azd env set MCP_APIM_RESOURCE_CLIENT_ID <client-id>
+azd env set MCP_CLAUDE_CLIENT_ID <claude-client-id>
+azd deploy
+```
+
+## CI/CD（GitHub Actions）
+
+Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
+
+參考 AuroraOps 的 ACR / ACA 自動上版模式：
+
+- `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
+- `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
+- `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
+  - `latestRevisionName == latestReadyRevisionName`
+  - ACA 目前 container image 已切到本次部署 image
+
+Image naming：
+
+- ACR image name：`purview-mcp-app`
+- main 穩定 tag：`latest`
+- main 日期 tag：`YYYYMMDD-sha7`
+- develop 穩定 tag：`develop`
+- develop 日期 tag：`develop-YYYYMMDD-sha7`
+
+預設設定：
+
+| 名稱 | 預設值 |
+|------|--------|
+| `ACA_NAME` | `ms-purview-mcp-ca` |
+| `ACA_CONTAINER_NAME` | `main` |
+| `IMAGE_NAME` | `purview-mcp-app` |
+
+## 已知陷阱
+
+- `azd env new` / `azd provision` 必須在專案根目錄執行；否則會出現 `no project exists; to create a new project, run azd init`
+- `azd env set` 一律用 `azd env set KEY VALUE`；不要混用 `KEY=VALUE`
+- `AZURE_ENV_NAME` 只代表 azd 環境，`AZURE_CAE_NAME` 才是既有 ACA Environment 名稱
+- `AZURE_LOCATION` 應使用 `eastus2` 這類 CLI 代碼，不要填顯示名稱 `East US 2`
+- `UC_CATALOGS` 在 azd env 與 `.env` 都用逗號分隔字串，例如 `prod_catalog,dev_catalog`；Bicep 內再轉成 JSON 陣列字串
+- `azd provision` 是實際部署，不是 dry-run；初次建立 ACA 時要先用 `AZURE_BOOTSTRAP_CONTAINER_IMAGE`，避免 ACR 尚未有應用 image 導致 revision 建立失敗
+- `USE_HTTP=true` 必須在容器環境變數中設定，否則 server 會跑 stdio mode 然後立即退出
+- ACA `ingress.targetPort` 必須與 `PORT` 環境變數一致（8080）
+- `AZURE_CONTAINER_REGISTRY_ENDPOINT` 必須明確存在，否則 `azd deploy` 或 workflow remote build 可能無法判斷 registry endpoint
+- `.dockerignore` 必須保留 `uv.lock` 進 build context，同時排除 `.azure` 避免 azd secrets 被送進 ACR build
+- ACR remote build 無法存取公司內網套件 proxy 時，Docker build 要改走 public PyPI；不要直接把本機/公司 proxy 設定硬改成對外版本
+- APIM API path `/purview-mcp` 不能與 outlook-email 的 `/` 衝突，部署前先確認
+- Named Values 命名加 `PurviewMcp` 前綴，避免與 outlook-email 的 `Mcp*` 衝突
+- 已曝光在對話或終端的 `AZURE_CLIENT_SECRET` / `DATABRICKS_TOKEN` 等憑證，應立即輪替

@@ -1,0 +1,212 @@
+<policies>
+    <inbound>
+        <base />
+        <set-variable name="authMasked" value="@{
+            var h = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, &quot;&quot;);
+            if (h.Length &lt; 20)
+            {
+                return h;
+            }
+
+            return h.Substring(0, 15) + &quot;...(&quot; + h.Length + &quot; chars)&quot;;
+        }" />
+        <set-variable name="incomingJwt" value="@{
+            var h = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, &quot;&quot;);
+            return h.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase) ? h.Substring(7) : h;
+        }" />
+        <choose>
+            <when condition="@{
+                var authorization = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, &quot;&quot;);
+                return string.IsNullOrWhiteSpace(authorization) || !authorization.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase);
+            }">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Bearer realm="mcp", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                    </set-header>
+                </return-response>
+            </when>
+        </choose>
+        <validate-jwt header-name="Authorization"
+                      failed-validation-httpcode="401"
+                      failed-validation-error-message="Unauthorized. Invalid or missing token."
+                      require-expiration-time="true"
+                      require-scheme="Bearer"
+                      require-signed-tokens="true"
+                      clock-skew="300">
+            <openid-config url="https://login.microsoftonline.com/{{McpTenantId}}/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>{{McpClientId}}</audience>
+                <audience>{{McpAppIdUri}}</audience>
+                <!-- Transitional: accept legacy direct-path audience -->
+                <audience>{{BackendMcpClientId}}</audience>
+                <audience>{{BackendMcpAppIdUri}}</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://login.microsoftonline.com/{{McpTenantId}}/v2.0</issuer>
+                <!-- Transitional: v1 tokens for legacy backend app -->
+                <issuer>https://sts.windows.net/{{McpTenantId}}/</issuer>
+            </issuers>
+        </validate-jwt>
+
+        <set-variable name="mcpTokenAccessType" value="@{
+            var token = (string)context.Variables[&quot;incomingJwt&quot;];
+            var segments = token.Split('.');
+            if (segments.Length &lt; 2)
+            {
+                return &quot;invalid&quot;;
+            }
+
+            var payload = segments[1].Replace('-', '+').Replace('_', '/');
+            switch (payload.Length % 4)
+            {
+                case 2:
+                    payload += &quot;==&quot;;
+                    break;
+                case 3:
+                    payload += &quot;=&quot;;
+                    break;
+            }
+
+            var claimsJson = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+            var claims = JObject.Parse(claimsJson);
+
+            var delegatedScopes = ((string)claims[&quot;scp&quot;] ?? string.Empty)
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (delegatedScopes.Any(scope =&gt;
+                string.Equals(scope, &quot;mcp.access&quot;, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(scope, &quot;user_impersonation&quot;, StringComparison.OrdinalIgnoreCase)))
+            {
+                return &quot;delegated&quot;;
+            }
+
+            var rolesClaim = claims[&quot;roles&quot;];
+            if (rolesClaim != null)
+            {
+                if (rolesClaim.Type == JTokenType.Array &amp;&amp; rolesClaim.Any(role =&gt; string.Equals((string)role, &quot;access_as_application&quot;, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return &quot;application&quot;;
+                }
+
+                if (rolesClaim.Type != JTokenType.Array &amp;&amp; string.Equals((string)rolesClaim, &quot;access_as_application&quot;, StringComparison.OrdinalIgnoreCase))
+                {
+                    return &quot;application&quot;;
+                }
+            }
+
+            return &quot;insufficient&quot;;
+        }" />
+        <set-variable name="mcpCallerClientId" value="@{
+            var jwt = ((string)context.Variables[&quot;incomingJwt&quot;]).AsJwt();
+            if (jwt == null)
+            {
+                return &quot;&quot;;
+            }
+
+            if (jwt.Claims.ContainsKey(&quot;azp&quot;) &amp;&amp; jwt.Claims[&quot;azp&quot;].Length &gt; 0)
+            {
+                return jwt.Claims[&quot;azp&quot;][0];
+            }
+
+            if (jwt.Claims.ContainsKey(&quot;appid&quot;) &amp;&amp; jwt.Claims[&quot;appid&quot;].Length &gt; 0)
+            {
+                return jwt.Claims[&quot;appid&quot;][0];
+            }
+
+            return &quot;&quot;;
+        }" />
+
+        <choose>
+            <when condition="@((string)context.Variables[&quot;mcpTokenAccessType&quot;] == &quot;insufficient&quot;)">
+                <return-response>
+                    <set-status code="403" reason="Forbidden" />
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Bearer error="insufficient_scope", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                    </set-header>
+                    <set-body>Access token must contain delegated scope 'mcp.access' (or legacy 'user_impersonation') or application role 'access_as_application'.</set-body>
+                </return-response>
+            </when>
+            <when condition="@{
+                var callerId = (string)context.Variables[&quot;mcpCallerClientId&quot;];
+                if (string.IsNullOrWhiteSpace(callerId))
+                {
+                    return true;
+                }
+
+                var allowedClientIds = &quot;{{McpAllowedCallerAppIdsCsv}}&quot;
+                    .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(appId =&gt; appId.Trim());
+
+                return !allowedClientIds.Any(appId =&gt; string.Equals(appId, callerId, StringComparison.OrdinalIgnoreCase));
+            }">
+                <return-response>
+                    <set-status code="403" reason="Forbidden" />
+                    <set-body>Caller application is not allowed to use this APIM retained MCP path.</set-body>
+                </return-response>
+            </when>
+        </choose>
+
+        <set-header name="X-User-Oid" exists-action="override">
+            <value>@{
+                var jwt = (string)context.Variables[&quot;incomingJwt&quot;];
+                if (string.IsNullOrEmpty(jwt))
+                {
+                    return &quot;&quot;;
+                }
+
+                var token = jwt.AsJwt();
+                return token != null &amp;&amp; token.Claims.ContainsKey(&quot;oid&quot;) &amp;&amp; token.Claims[&quot;oid&quot;].Length &gt; 0
+                    ? token.Claims[&quot;oid&quot;][0]
+                    : &quot;&quot;;
+            }</value>
+        </set-header>
+        <set-header name="X-User-Upn" exists-action="override">
+            <value>@{
+                var jwt = (string)context.Variables[&quot;incomingJwt&quot;];
+                if (string.IsNullOrEmpty(jwt))
+                {
+                    return &quot;&quot;;
+                }
+
+                var token = jwt.AsJwt();
+                return token != null &amp;&amp; token.Claims.ContainsKey(&quot;preferred_username&quot;) &amp;&amp; token.Claims[&quot;preferred_username&quot;].Length &gt; 0
+                    ? token.Claims[&quot;preferred_username&quot;][0]
+                    : &quot;&quot;;
+            }</value>
+        </set-header>
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+        <authentication-managed-identity resource="{{BackendMcpAppIdUri}}" client-id="{{ApimBackendClientId}}" output-token-variable-name="backendAccessToken" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["backendAccessToken"])</value>
+        </set-header>
+        <set-header name="Accept" exists-action="override">
+            <value>application/json, text/event-stream</value>
+        </set-header>
+    </inbound>
+    <backend>
+        <forward-request timeout="300" buffer-response="false" />
+    </backend>
+    <outbound>
+        <base />
+        <choose>
+            <when condition="@(context.Response != null &amp;&amp; context.Response.StatusCode == 401)">
+                <set-header name="WWW-Authenticate" exists-action="override">
+                    <value>Bearer realm="mcp", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                </set-header>
+            </when>
+        </choose>
+    </outbound>
+    <on-error>
+        <base />
+        <choose>
+            <when condition="@(context.LastError != null &amp;&amp; context.LastError.Source == &quot;validate-jwt&quot;)">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Bearer realm="mcp", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                    </set-header>
+                </return-response>
+            </when>
+        </choose>
+    </on-error>
+</policies>

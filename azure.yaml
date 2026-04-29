@@ -1,0 +1,15 @@
+name: purview-mcp
+
+metadata:
+  template: azd-init@1.14.0
+
+services:
+  purview-mcp:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile
+      context: .
+      registry: ${AZURE_CONTAINER_REGISTRY_ENDPOINT}
+      remoteBuild: true

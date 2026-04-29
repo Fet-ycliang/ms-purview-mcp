@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName":                    { "value": "${AZURE_ENV_NAME}" },
+    "location":                           { "value": "${AZURE_LOCATION=eastus2}" },
+    "resourceNameStem":                   { "value": "${AZURE_RESOURCE_NAME_STEM=ms-purview-mcp}" },
+    "existingContainerRegistryName":      { "value": "${AZURE_CONTAINER_REGISTRY_NAME=fetimageacr}" },
+    "existingContainerAppsEnvName":       { "value": "${AZURE_CAE_NAME=cae-fet-outlook-email-env}" },
+    "existingContainerAppsEnvResourceGroup": { "value": "${AZURE_CAE_RESOURCE_GROUP=}" },
+    "bootstrapContainerImage":            { "value": "${AZURE_BOOTSTRAP_CONTAINER_IMAGE=mcr.microsoft.com/dotnet/samples:aspnetapp}" },
+    "azureTenantId":                      { "value": "${AZURE_TENANT_ID}" },
+    "azureClientId":                      { "value": "${AZURE_CLIENT_ID}" },
+    "azureClientSecret":                  { "value": "${AZURE_CLIENT_SECRET}" },
+    "purviewAccountName":                 { "value": "${PURVIEW_ACCOUNT_NAME}" },
+    "databricksHost":                     { "value": "${DATABRICKS_HOST}" },
+    "databricksToken":                    { "value": "${DATABRICKS_TOKEN}" },
+    "ucDefaultCatalog":                   { "value": "${UC_DEFAULT_CATALOG=}" },
+    "ucCatalogs":                         { "value": "${UC_CATALOGS=}" },
+    "deployApimMcpApi":                   { "value": "${AZURE_DEPLOY_APIM_MCP_API=false}" },
+    "existingApimName":                   { "value": "${AZURE_APIM_NAME=apim-fet-outlook-email}" }
+  }
+}
