@@ -109,6 +109,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 #### 部署踩坑與注意事項
 
+- 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
 - `azd env new` / `azd provision` 必須在 repo 根目錄執行；如果不在 `azure.yaml` 所在目錄，會出現 `no project exists`
 - `azd env set` 語法是 `azd env set KEY VALUE`，不要寫成 `KEY=VALUE`
 - `AZURE_ENV_NAME` 是 azd 環境名；`AZURE_CAE_NAME` 是既有 Container Apps Environment 名稱，兩者不要混用
@@ -116,6 +117,7 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `UC_CATALOGS` 在 azd / `.env` 層請用逗號分隔字串，例如 `prod_catalog,dev_catalog`；不要直接塞 JSON 陣列
 - `azd provision` 會真的建資源，不是單純驗證；初次建立 ACA 需先用 public bootstrap image，否則會卡在 ACR 尚未有 `latest`
 - 若走 `azd deploy` 或 workflow build，請明確提供 `AZURE_CONTAINER_REGISTRY_ENDPOINT`，否則 remote build 可能找不到 registry endpoint
+- GitHub Actions JavaScript actions 已逐步淘汰 Node 20；`actions/checkout` 與 `actions/setup-python` 應維持在 `v6`，避免新 runner 切到 Node 24 後出現 deprecation warning 或執行失敗
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，但要排除 `.azure`，避免 secrets 被送進 remote build
 - ACR remote build 無法解析公司內網 Nexus 時，Docker build 要走 public PyPI；不要反過來改壞本機 / 公司 proxy 的開發設定
 - 若 secret 曾直接貼在對話、終端或 commit 歷史中，應視為外洩並立即輪替

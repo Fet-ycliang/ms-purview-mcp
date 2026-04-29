@@ -158,6 +158,7 @@ Image naming：
 
 ## 已知陷阱
 
+- GitHub Actions 目前讀的是 **Repository-level** Variables / Secrets；若 GitHub UI 要求先建立 `Environment Name`，代表你進到 Environment 層級，不是本 workflow 使用的位置
 - `azd env new` / `azd provision` 必須在專案根目錄執行；否則會出現 `no project exists; to create a new project, run azd init`
 - `azd env set` 一律用 `azd env set KEY VALUE`；不要混用 `KEY=VALUE`
 - `AZURE_ENV_NAME` 只代表 azd 環境，`AZURE_CAE_NAME` 才是既有 ACA Environment 名稱
@@ -167,6 +168,7 @@ Image naming：
 - `USE_HTTP=true` 必須在容器環境變數中設定，否則 server 會跑 stdio mode 然後立即退出
 - ACA `ingress.targetPort` 必須與 `PORT` 環境變數一致（8080）
 - `AZURE_CONTAINER_REGISTRY_ENDPOINT` 必須明確存在，否則 `azd deploy` 或 workflow remote build 可能無法判斷 registry endpoint
+- GitHub Actions runner 已逐步從 Node 20 遷移到 Node 24；`actions/checkout`、`actions/setup-python` 等 JavaScript action 需使用 Node 24 相容版本（目前採 `v6`）
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，同時排除 `.azure` 避免 azd secrets 被送進 ACR build
 - ACR remote build 無法存取公司內網套件 proxy 時，Docker build 要改走 public PyPI；不要直接把本機/公司 proxy 設定硬改成對外版本
 - APIM API path `/purview-mcp` 不能與 outlook-email 的 `/` 衝突，部署前先確認
