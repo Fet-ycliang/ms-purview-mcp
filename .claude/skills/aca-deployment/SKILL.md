@@ -169,7 +169,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 Image naming：
 
-- ACR image name：`purview-mcp-app`
+- ACR image name：`ms-purview-mcp`
 - main 穩定 tag：`latest`
 - main 日期 tag：`YYYYMMDD-sha7`
 - develop 穩定 tag：`develop`
@@ -181,7 +181,7 @@ Image naming：
 |------|--------|
 | `ACA_NAME` | `ms-purview-mcp-ca` |
 | `ACA_CONTAINER_NAME` | `main` |
-| `IMAGE_NAME` | `purview-mcp-app` |
+| `IMAGE_NAME` | `ms-purview-mcp` |
 
 ## 已知陷阱
 
