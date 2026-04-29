@@ -164,6 +164,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
   - `AZURE_CREDENTIALS` 存在時，優先走 AuroraOps 風格的 creds JSON login
   - `AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，workflow 走 service principal secret login
   - deploy secret 不存在時，workflow 才走 GitHub OIDC
+- 目前 deploy target 已比照 AuroraOps 固定在 workflow env，不再依賴 GitHub Variables
 - GitHub deploy workflow 只做 build / push / rollout；`PURVIEW_*`、`DATABRICKS_*` 這些 runtime env 會在 `azd provision` 時寫進 ACA，不需要每次 deploy 都再提供一次
 - `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
   - `latestRevisionName == latestReadyRevisionName`
@@ -188,7 +189,7 @@ Image naming：
 ## 已知陷阱
 
 - GitHub Actions 目前讀的是 **Repository-level** Variables / Secrets；若 GitHub UI 要求先建立 `Environment Name`，代表你進到 Environment 層級，不是本 workflow 使用的位置
-- GitHub deploy workflow 現在只需要 **3 個 repo variables**：`AZURE_SUBSCRIPTION_ID`、`AZURE_RESOURCE_GROUP_NAME`、`AZURE_CONTAINER_REGISTRY_NAME`。`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 這些 runtime 設定不應再放到 GitHub deploy workflow
+- 目前 GitHub deploy workflow 只需要 **`AZURE_CREDENTIALS` 這一個 secret**；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 這些 runtime 設定不應再放到 GitHub deploy workflow
 - 若 GitHub Actions 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。可先保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 service principal secret login，或補上 branch 對應的 federated credential
 - cross-tenant 時請把 **部署身分** 與 **Purview runtime 身分** 分離：GitHub deploy 用 `AZURE_DEPLOY_*`，app / `.env` 用 `PURVIEW_*`
 - `azd env new` / `azd provision` 必須在專案根目錄執行；否則會出現 `no project exists; to create a new project, run azd init`
@@ -200,8 +201,8 @@ Image naming：
 - `azd provision` 是實際部署，不是 dry-run；初次建立 ACA 時要先用 `AZURE_BOOTSTRAP_CONTAINER_IMAGE`，避免 ACR 尚未有應用 image 導致 revision 建立失敗
 - `USE_HTTP=true` 必須在容器環境變數中設定，否則 server 會跑 stdio mode 然後立即退出
 - ACA `ingress.targetPort` 必須與 `PORT` 環境變數一致（8080）
-- GitHub workflow 會自動把 `AZURE_CONTAINER_REGISTRY_NAME` 推成 `<acr>.azurecr.io`；只有 `azd` 或特殊 registry endpoint 情境才需要另外設定 `AZURE_CONTAINER_REGISTRY_ENDPOINT`
-- GitHub Actions runner 已逐步從 Node 20 遷移到 Node 24；`actions/checkout`、`actions/setup-python` 等 JavaScript action 需使用 Node 24 相容版本（目前採 `v6`）
+- GitHub workflow 目前已固定使用 `fetimageacr.azurecr.io`；只有 `azd` 或特殊 registry endpoint 情境才需要另外設定 `AZURE_CONTAINER_REGISTRY_ENDPOINT`
+- GitHub Actions runner 已逐步從 Node 20 遷移到 Node 24；workflow 已改成 `azure/login@v2`，並設定 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`
 - GitHub Actions 若直接用 `uv run` 執行測試，會依 `uv.lock` 中的來源抓套件；當 lock 內是公司 Nexus URL 時，GitHub runner 會解析失敗。CI 應改成 `uv export --frozen` 後，用 `pip --isolated -i https://pypi.org/simple` 安裝測試依賴
 - `tests/test_e2e.py` 屬於真實整合測試，依賴外部 Purview / Databricks / Entra 環境；GitHub workflow 預設只跑 `not e2e`，避免把外部服務波動當成 build 失敗
 - workflow `paths` 要記得包含 `tests/**`，不然 test-only 修正不會觸發 GitHub Actions
