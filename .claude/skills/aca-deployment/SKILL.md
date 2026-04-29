@@ -160,7 +160,8 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 - `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
 - `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
-- Azure 登入採雙模式：
+- Azure 登入採多模式 fallback：
+  - `AZURE_CREDENTIALS` 存在時，優先走 AuroraOps 風格的 creds JSON login
   - `AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，workflow 走 service principal secret login
   - deploy secret 不存在時，workflow 才走 GitHub OIDC
 - GitHub deploy workflow 只做 build / push / rollout；`PURVIEW_*`、`DATABRICKS_*` 這些 runtime env 會在 `azd provision` 時寫進 ACA，不需要每次 deploy 都再提供一次

@@ -6,17 +6,19 @@ name: Build & Deploy purview-mcp
 #
 # 前置條件：
 # 1. Service Principal 需能操作 ACR 與 ACA
-# 2. 若已在 Entra App 設定 GitHub federated credential，可不設定 AZURE_DEPLOY_CLIENT_SECRET，workflow 會走 OIDC
-# 3. 若尚未設定 federated credential，保留 AZURE_DEPLOY_CLIENT_SECRET，workflow 會自動改走 service principal secret login
-# 4. Repository Variables 至少需設定：
+# 2. 若設定 AuroraOps 風格的 AZURE_CREDENTIALS（az ad sp create-for-rbac --json-auth 輸出的完整 JSON），workflow 會優先走 creds JSON login
+# 3. 若未設定 AZURE_CREDENTIALS，但已在 Entra App 設定 GitHub federated credential，可不設定 AZURE_DEPLOY_CLIENT_SECRET，workflow 會走 OIDC
+# 4. 若尚未設定 federated credential，保留 AZURE_DEPLOY_CLIENT_SECRET，workflow 會自動改走 service principal secret login
+# 5. Repository Variables 至少需設定：
 #    - AZURE_SUBSCRIPTION_ID
 #    - AZURE_RESOURCE_GROUP_NAME
 #    - AZURE_CONTAINER_REGISTRY_NAME
-# 5. Repository Secrets 至少需設定：
+# 6. Repository Secrets 至少需設定：
+#    - AZURE_CREDENTIALS（選用；AuroraOps 風格單一 JSON secret）
 #    - AZURE_DEPLOY_CLIENT_ID（未設定時回退到既有 AZURE_CLIENT_ID）
 #    - AZURE_DEPLOY_TENANT_ID（未設定時回退到既有 AZURE_TENANT_ID）
 #    - AZURE_DEPLOY_CLIENT_SECRET（未完成 OIDC federation 時必填；未設定時回退到既有 AZURE_CLIENT_SECRET）
-# 6. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
+# 7. ACA 的 managed identity 需已具備 ACR 的 AcrPull 權限
 
 on:
   push:
@@ -49,10 +51,11 @@ concurrency:
 env:
   PYTHON_VERSION: '3.12'
   AZURE_CORE_OUTPUT: none
+  AZURE_CREDENTIALS_JSON: ${{ secrets.AZURE_CREDENTIALS }}
   DEPLOY_AZURE_CLIENT_ID: ${{ secrets.AZURE_DEPLOY_CLIENT_ID != '' && secrets.AZURE_DEPLOY_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
   DEPLOY_AZURE_TENANT_ID: ${{ secrets.AZURE_DEPLOY_TENANT_ID != '' && secrets.AZURE_DEPLOY_TENANT_ID || secrets.AZURE_TENANT_ID }}
   DEPLOY_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && secrets.AZURE_DEPLOY_CLIENT_SECRET || secrets.AZURE_CLIENT_SECRET }}
-  AZURE_LOGIN_MODE: ${{ (secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && 'client-secret') || (secrets.AZURE_CLIENT_SECRET != '' && 'client-secret') || 'oidc' }}
+  AZURE_LOGIN_MODE: ${{ (secrets.AZURE_CREDENTIALS != '' && 'azure-credentials') || (secrets.AZURE_DEPLOY_CLIENT_SECRET != '' && 'client-secret') || (secrets.AZURE_CLIENT_SECRET != '' && 'client-secret') || 'oidc' }}
   ACR_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
   ACR_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY_ENDPOINT != '' && vars.AZURE_CONTAINER_REGISTRY_ENDPOINT || format('{0}.azurecr.io', vars.AZURE_CONTAINER_REGISTRY_NAME) }}
   ACA_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
@@ -102,6 +105,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "${{ env.AZURE_LOGIN_MODE }}" = "azure-credentials" ]; then
+            echo "使用 AZURE_CREDENTIALS（AuroraOps 風格）登入 Azure。"
+            exit 0
+          fi
+
           if [ -z "${{ env.DEPLOY_AZURE_CLIENT_ID }}" ]; then
             echo "::error::缺少 GitHub deploy secret: AZURE_DEPLOY_CLIENT_ID（或 legacy AZURE_CLIENT_ID）"
             exit 1
@@ -125,6 +133,12 @@ jobs:
           if ! printf '%s' "${{ vars.AZURE_SUBSCRIPTION_ID }}" | grep -Eq '^[0-9a-fA-F-]{36}$'; then
             echo "::warning::AZURE_SUBSCRIPTION_ID 目前不是 GUID。Service principal secret login 仍會嘗試用 az account set 處理，但若要走 OIDC，建議改成 Azure Subscription GUID。"
           fi
+
+      - name: Azure login (AZURE_CREDENTIALS)
+        if: ${{ env.AZURE_LOGIN_MODE == 'azure-credentials' }}
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        with:
+          creds: ${{ env.AZURE_CREDENTIALS_JSON }}
 
       - name: Azure login (OIDC)
         if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
@@ -224,6 +238,12 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
+      - name: Azure login (AZURE_CREDENTIALS)
+        if: ${{ env.AZURE_LOGIN_MODE == 'azure-credentials' }}
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        with:
+          creds: ${{ env.AZURE_CREDENTIALS_JSON }}
+
       - name: Azure login (OIDC)
         if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
