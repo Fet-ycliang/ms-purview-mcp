@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
-    azure_tenant_id: str
-    azure_client_id: str
-    azure_client_secret: str
+    azure_tenant_id: str = Field(
+        validation_alias=AliasChoices("PURVIEW_TENANT_ID", "AZURE_TENANT_ID")
+    )
+    azure_client_id: str = Field(
+        validation_alias=AliasChoices("PURVIEW_CLIENT_ID", "AZURE_CLIENT_ID")
+    )
+    azure_client_secret: str = Field(
+        validation_alias=AliasChoices("PURVIEW_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
+    )
     purview_account_name: str
 
     databricks_host: str = ""
@@ -25,6 +31,18 @@ class Settings(BaseSettings):
     @property
     def purview_base_url(self) -> str:
         return f"https://{self.purview_account_name}.purview.azure.com"
+
+    @property
+    def purview_tenant_id(self) -> str:
+        return self.azure_tenant_id
+
+    @property
+    def purview_client_id(self) -> str:
+        return self.azure_client_id
+
+    @property
+    def purview_client_secret(self) -> str:
+        return self.azure_client_secret
 
 
 class AssetResult(BaseModel):

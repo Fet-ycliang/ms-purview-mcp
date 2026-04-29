@@ -72,9 +72,10 @@ var containerEnvVars = concat(
   [
     { name: 'USE_HTTP',   value: 'true' }
     { name: 'PORT',       value: '8080' }
-    { name: 'AZURE_TENANT_ID', value: azureTenantId }
-    { name: 'AZURE_CLIENT_ID', value: azureClientId }
-    { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' }
+    // Runtime auth is Purview-specific. Keep deploy auth separate from app auth.
+    { name: 'PURVIEW_TENANT_ID', value: azureTenantId }
+    { name: 'PURVIEW_CLIENT_ID', value: azureClientId }
+    { name: 'PURVIEW_CLIENT_SECRET', secretRef: 'azure-client-secret' }
     { name: 'PURVIEW_ACCOUNT_NAME', value: purviewAccountName }
     { name: 'DATABRICKS_HOST', value: databricksHost }
     { name: 'DATABRICKS_TOKEN', secretRef: 'databricks-token' }
