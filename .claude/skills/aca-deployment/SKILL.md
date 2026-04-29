@@ -42,9 +42,9 @@ Claude Code / Databricks
 |------|------|------|
 | `USE_HTTP` | 硬寫 `true` | 啟用 streamable-http transport |
 | `PORT` | 硬寫 `8080` | 監聽 port |
-| `AZURE_TENANT_ID` | param | Entra tenant ID |
-| `AZURE_CLIENT_ID` | param | Service Principal client ID |
-| `AZURE_CLIENT_SECRET` | secret | SP client secret |
+| `PURVIEW_TENANT_ID` | param | Purview runtime tenant ID |
+| `PURVIEW_CLIENT_ID` | param | Purview runtime client ID |
+| `PURVIEW_CLIENT_SECRET` | secret | Purview runtime client secret |
 | `PURVIEW_ACCOUNT_NAME` | param | Purview 帳號名稱（不含 .purview.azure.com）|
 | `DATABRICKS_HOST` | param | `https://<workspace>.azuredatabricks.net` |
 | `DATABRICKS_TOKEN` | secret | Databricks PAT token |
@@ -54,6 +54,8 @@ Claude Code / Databricks
 
 ### azd 環境變數（.azure/<env>/.env）
 
+> 目前 `infra/main.parameters.json` 為了相容既有 azd 環境，仍從 `AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET` 讀取 Purview runtime 認證，但注入 ACA 後會轉成 `PURVIEW_*` container env。GitHub deploy 則建議改用 `AZURE_DEPLOY_*`。
+
 ```bash
 AZURE_ENV_NAME=purview-mcp-dev
 AZURE_LOCATION=eastasia
@@ -62,9 +64,9 @@ AZURE_RESOURCE_NAME_STEM=ms-purview-mcp
 AZURE_CONTAINER_REGISTRY_NAME=fetimageacr
 AZURE_CONTAINER_REGISTRY_ENDPOINT=fetimageacr.azurecr.io
 AZURE_CAE_NAME=cae-fet-outlook-email-env
-AZURE_TENANT_ID=...
-AZURE_CLIENT_ID=...
-AZURE_CLIENT_SECRET=...
+AZURE_TENANT_ID=...         # 相容舊版，實際部署到 ACA 時會映射為 PURVIEW_TENANT_ID
+AZURE_CLIENT_ID=...         # 相容舊版，實際部署到 ACA 時會映射為 PURVIEW_CLIENT_ID
+AZURE_CLIENT_SECRET=...     # 相容舊版，實際部署到 ACA 時會映射為 PURVIEW_CLIENT_SECRET
 PURVIEW_ACCOUNT_NAME=...
 DATABRICKS_HOST=...
 DATABRICKS_TOKEN=...
@@ -128,6 +130,28 @@ azd env set MCP_CLAUDE_CLIENT_ID <claude-client-id>
 azd deploy
 ```
 
+### APIM expose 建議
+
+建議只 expose 一組 Purview MCP API：
+
+- `GET /purview-mcp/mcp`
+- `POST /purview-mcp/mcp`
+- `GET /purview-mcp/.well-known/oauth-protected-resource`
+
+兩條流量共用同一組 APIM policy：
+
+1. Databricks remote MCP：application token，要求 `access_as_application`
+2. Claude Code browser flow：delegated token，要求 `mcp.access`（相容 `user_impersonation`）
+
+目前 repo 內的 `purview-mcp-api.policy.xml` 已包含：
+
+- caller JWT 驗證
+- delegated / application token 分流
+- `McpAllowedCallerAppIdsCsv` allowlist
+- APIM managed identity 對 backend 重新取 token
+
+若最終要把 APIM 作為唯一入口，ACA 需要再收斂成 internal/private ingress，或至少補上額外網路限制，否則仍可能繞過 APIM 直打 ACA FQDN。
+
 ## CI/CD（GitHub Actions）
 
 Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
@@ -137,8 +161,8 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `develop` push：執行測試後，用 `az acr build` 建置並推送 image 到 ACR
 - `main` push：同樣先建 image，再自動 `az containerapp update` rollout `ms-purview-mcp-ca`
 - Azure 登入採雙模式：
-  - `AZURE_CLIENT_SECRET` 存在時，workflow 走 service principal secret login
-  - `AZURE_CLIENT_SECRET` 不存在時，workflow 才走 GitHub OIDC
+  - `AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，workflow 走 service principal secret login
+  - deploy secret 不存在時，workflow 才走 GitHub OIDC
 - `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
   - `latestRevisionName == latestReadyRevisionName`
   - ACA 目前 container image 已切到本次部署 image
@@ -162,7 +186,8 @@ Image naming：
 ## 已知陷阱
 
 - GitHub Actions 目前讀的是 **Repository-level** Variables / Secrets；若 GitHub UI 要求先建立 `Environment Name`，代表你進到 Environment 層級，不是本 workflow 使用的位置
-- 若 GitHub Actions 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。可先保留 `AZURE_CLIENT_SECRET` 讓 workflow 走 service principal secret login，或補上 branch 對應的 federated credential
+- 若 GitHub Actions 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。可先保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 service principal secret login，或補上 branch 對應的 federated credential
+- cross-tenant 時請把 **部署身分** 與 **Purview runtime 身分** 分離：GitHub deploy 用 `AZURE_DEPLOY_*`，app / `.env` 用 `PURVIEW_*`
 - `azd env new` / `azd provision` 必須在專案根目錄執行；否則會出現 `no project exists; to create a new project, run azd init`
 - `azd env set` 一律用 `azd env set KEY VALUE`；不要混用 `KEY=VALUE`
 - `AZURE_ENV_NAME` 只代表 azd 環境，`AZURE_CAE_NAME` 才是既有 ACA Environment 名稱

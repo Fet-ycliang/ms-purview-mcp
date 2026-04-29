@@ -1,14 +1,14 @@
 """
 E2E 測試：直接呼叫 Purview API，驗證每個 skill 的連線與回傳格式。
-需要 .env 設定好 AZURE_* 與 PURVIEW_ACCOUNT_NAME。
+需要 .env 設定好 PURVIEW_*（legacy AZURE_* 仍相容）與 PURVIEW_ACCOUNT_NAME。
 執行：uv run pytest tests/test_e2e.py -v
 """
 import pytest
 import pytest_asyncio
 
+from purview_mcp.auth import get_token, reset_credential_cache
 from purview_mcp.cache import reset_cache_manager
 from purview_mcp.models import Settings
-from purview_mcp.auth import get_token
 from purview_mcp.client.purview import PurviewClient, reset_purview_client
 from purview_mcp.models import LineageResult
 from purview_mcp.skills import discovery, glossary, lineage, policy, uc_sync
@@ -26,9 +26,11 @@ def _reset_singletons():
     """每個 e2e test 前後都重置 singleton，避免跨事件迴圈重用 AsyncClient。"""
     reset_cache_manager()
     reset_purview_client()
+    reset_credential_cache()
     yield
     reset_cache_manager()
     reset_purview_client()
+    reset_credential_cache()
 
 
 @pytest_asyncio.fixture
@@ -181,12 +183,28 @@ class TestModels:
         from purview_mcp.models import Settings as S
         from unittest.mock import patch
         with patch.dict("os.environ", {
-            "AZURE_TENANT_ID": "t", "AZURE_CLIENT_ID": "c",
-            "AZURE_CLIENT_SECRET": "s", "PURVIEW_ACCOUNT_NAME": "myaccount",
+            "PURVIEW_TENANT_ID": "t", "PURVIEW_CLIENT_ID": "c",
+            "PURVIEW_CLIENT_SECRET": "s", "PURVIEW_ACCOUNT_NAME": "myaccount",
             "DATABRICKS_HOST": "https://x.azuredatabricks.net",
         }):
             s = S()
             assert s.purview_base_url == "https://myaccount.purview.azure.com"
+            assert s.purview_tenant_id == "t"
+            assert s.purview_client_id == "c"
+
+    def test_settings_legacy_azure_env_still_supported(self):
+        """TC-06a: legacy AZURE_* 環境變數仍可作為 Purview 認證來源"""
+        from purview_mcp.models import Settings as S
+        from unittest.mock import patch
+        with patch.dict("os.environ", {
+            "AZURE_TENANT_ID": "legacy-t", "AZURE_CLIENT_ID": "legacy-c",
+            "AZURE_CLIENT_SECRET": "legacy-s", "PURVIEW_ACCOUNT_NAME": "myaccount",
+            "DATABRICKS_HOST": "https://x.azuredatabricks.net",
+        }):
+            s = S()
+            assert s.purview_tenant_id == "legacy-t"
+            assert s.purview_client_id == "legacy-c"
+            assert s.purview_client_secret == "legacy-s"
 
     def test_asset_result_defaults(self):
         """TC-06b: AssetResult 預設值正確"""
@@ -199,7 +217,7 @@ class TestModels:
         assert a.experts == []
 
     def test_uc_table_info_alias(self):
-        """TC-06c: UCTableInfo 接受 'schema' alias"""
+        """TC-06d: UCTableInfo 接受 'schema' alias"""
         from purview_mcp.models import UCTableInfo
         t = UCTableInfo(catalog="main", schema="cbss", table_name="orders")
         assert t.schema_name == "cbss"

@@ -89,29 +89,41 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 | 名稱 | 說明 |
 |------|------|
-| `AZURE_CLIENT_ID` | GitHub OIDC / service principal secret 共用的 Service Principal Client ID |
-| `AZURE_TENANT_ID` | Azure Tenant ID |
-| `AZURE_CLIENT_SECRET` | Service Principal secret。若保留此 secret，workflow 會走 service principal secret login；若刪除此 secret，workflow 會改走 OIDC |
+| `AZURE_DEPLOY_CLIENT_ID` | **建議使用**。GitHub 部署專用的 Service Principal Client ID |
+| `AZURE_DEPLOY_TENANT_ID` | **建議使用**。GitHub 部署專用 tenant ID |
+| `AZURE_DEPLOY_CLIENT_SECRET` | **建議使用**。GitHub 部署專用 secret；若保留此 secret，workflow 會走 service principal secret login |
+| `PURVIEW_TENANT_ID` | 選用。若 GitHub job 需要直接拿 Purview token，使用這組 runtime tenant |
+| `PURVIEW_CLIENT_ID` | 選用。Purview runtime client ID |
+| `PURVIEW_CLIENT_SECRET` | 選用。Purview runtime client secret |
 | `DATABRICKS_TOKEN` | Databricks PAT |
+
+> 目前 workflow 仍保留 `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` 作為 **legacy fallback**，避免現有設定立刻失效。但要處理 cross-tenant，請改用 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離。
 
 #### `.env` 與 CI 變數對照
 
 | 本機 `.env` | GitHub 設定 |
 |-------------|-------------|
-| `AZURE_TENANT_ID` | `AZURE_TENANT_ID` secret |
-| `AZURE_CLIENT_ID` | `AZURE_CLIENT_ID` secret |
-| `AZURE_CLIENT_SECRET` | `AZURE_CLIENT_SECRET` secret |
+| `PURVIEW_TENANT_ID` | `PURVIEW_TENANT_ID` secret |
+| `PURVIEW_CLIENT_ID` | `PURVIEW_CLIENT_ID` secret |
+| `PURVIEW_CLIENT_SECRET` | `PURVIEW_CLIENT_SECRET` secret |
 | `PURVIEW_ACCOUNT_NAME` | `PURVIEW_ACCOUNT_NAME` variable |
 | `DATABRICKS_HOST` | `DATABRICKS_HOST` variable |
 | `DATABRICKS_TOKEN` | `DATABRICKS_TOKEN` secret |
 | `UC_DEFAULT_CATALOG` | 目前 workflow 未使用，可保留本機設定 |
 | `UC_CATALOGS` | 目前 workflow 未使用；若未來要加，請用 `prod_catalog,dev_catalog` 格式 |
 
+#### Cross-tenant 建議切法
+
+- **部署身分**：GitHub Actions 只用 `AZURE_DEPLOY_*`，這組必須能看到 Azure subscription / ACR / ACA
+- **Purview 執行身分**：應用程式只用 `PURVIEW_*`，這組必須在 Purview 所在 tenant 有權限
+- **Databricks 執行身分**：若與 Purview 不同 tenant，繼續用既有 `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` / `DATABRICKS_TENANT_ID`
+
 #### 部署踩坑與注意事項
 
 - 目前 workflow 讀的是 **Repository-level** Variables / Secrets；如果 GitHub 頁面要求先取 `Environment Name`，代表你進到 Environment 層級，不是這次要設定的位置
-- GitHub Actions 的 Azure 登入現在採 **雙模式**：`AZURE_CLIENT_SECRET` 存在時，直接走 service principal secret login；只有在你刪除此 secret 後，workflow 才會改走 OIDC
-- 若 workflow 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。處理方式二選一：保留 `AZURE_CLIENT_SECRET` 讓 workflow 走 secret login，或在 Entra App 補上對應 branch 的 federated credential
+- GitHub Actions 的 Azure 登入現在採 **雙模式**：`AZURE_DEPLOY_CLIENT_SECRET`（或 legacy `AZURE_CLIENT_SECRET`）存在時，直接走 service principal secret login；只有 deploy secret 都不存在時，workflow 才會改走 OIDC
+- 若 workflow 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。處理方式二選一：保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 secret login，或在 Entra App 補上對應 branch 的 federated credential
+- 若你要處理 cross-tenant，**不要**再把部署 SP 和 Purview runtime SP 共用同一組 `AZURE_*` GitHub secrets。請改成 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離
 - `azd env new` / `azd provision` 必須在 repo 根目錄執行；如果不在 `azure.yaml` 所在目錄，會出現 `no project exists`
 - `azd env set` 語法是 `azd env set KEY VALUE`，不要寫成 `KEY=VALUE`
 - `AZURE_ENV_NAME` 是 azd 環境名；`AZURE_CAE_NAME` 是既有 Container Apps Environment 名稱，兩者不要混用
@@ -126,6 +138,30 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，但要排除 `.azure`，避免 secrets 被送進 remote build
 - ACR remote build 無法解析公司內網 Nexus 時，Docker build 要走 public PyPI；不要反過來改壞本機 / 公司 proxy 的開發設定
 - 若 secret 曾直接貼在對話、終端或 commit 歷史中，應視為外洩並立即輪替
+
+---
+
+## APIM expose 建議
+
+建議維持 **單一路徑**：
+
+- `GET /purview-mcp/mcp`
+- `POST /purview-mcp/mcp`
+- `GET /purview-mcp/.well-known/oauth-protected-resource`
+
+兩條呼叫路徑共用同一組 API policy：
+
+1. **Databricks remote MCP**：使用 application token，要求 app role `access_as_application`
+2. **Claude Code browser flow**：使用 delegated token，要求 scope `mcp.access`（相容 legacy `user_impersonation`）
+
+目前 repo 內的 APIM policy 已經照這個方向設計：
+
+- 驗證 caller JWT
+- 區分 delegated / application token
+- 用 `McpAllowedCallerAppIdsCsv` 限制允許的 caller app
+- APIM 再用 managed identity 對 ACA backend 取 token 並轉送
+
+如果要讓 `Databricks / Claude Code -> APIM -> ACA` 成為**唯一正式入口**，下一步要把 ACA ingress 改成 private/internal，或加上額外 network / auth 限制。否則知道 ACA FQDN 的流量仍可繞過 APIM。
 
 ---
 

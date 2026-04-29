@@ -5,6 +5,7 @@ Unit tests：使用 mock 取代真實 API，可在無憑證環境執行。
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from purview_mcp.auth import reset_credential_cache
 from purview_mcp.cache import reset_cache_manager
 from purview_mcp.client.purview import reset_purview_client
 from purview_mcp.models import Settings, UCColumnInfo, UCTableInfo
@@ -17,9 +18,11 @@ def _reset_singletons():
     """每個 test 前重置 cache 與 client singleton，避免交互污染。"""
     reset_cache_manager()
     reset_purview_client()
+    reset_credential_cache()
     yield
     reset_cache_manager()
     reset_purview_client()
+    reset_credential_cache()
 
 
 @pytest.fixture
@@ -31,6 +34,42 @@ def settings():
         purview_account_name="myaccount",
         databricks_host="https://x.azuredatabricks.net",
     )
+
+
+# ──────────────────────────────────────────
+# UT-00: Settings / Env Alias
+# ──────────────────────────────────────────
+class TestSettingsUnit:
+    def test_prefers_purview_env_names(self):
+        """UT-00: Settings 會優先讀取 PURVIEW_* 環境變數"""
+        with patch.dict("os.environ", {
+            "PURVIEW_TENANT_ID": "purview-t",
+            "PURVIEW_CLIENT_ID": "purview-c",
+            "PURVIEW_CLIENT_SECRET": "purview-s",
+            "PURVIEW_ACCOUNT_NAME": "myaccount",
+            "DATABRICKS_HOST": "https://x.azuredatabricks.net",
+        }):
+            s = Settings()  # type: ignore[call-arg]
+
+        assert s.purview_base_url == "https://myaccount.purview.azure.com"
+        assert s.purview_tenant_id == "purview-t"
+        assert s.purview_client_id == "purview-c"
+        assert s.purview_client_secret == "purview-s"
+
+    def test_legacy_azure_env_names_still_work(self):
+        """UT-00b: legacy AZURE_* 仍可作為 Purview 認證來源"""
+        with patch.dict("os.environ", {
+            "AZURE_TENANT_ID": "legacy-t",
+            "AZURE_CLIENT_ID": "legacy-c",
+            "AZURE_CLIENT_SECRET": "legacy-s",
+            "PURVIEW_ACCOUNT_NAME": "myaccount",
+            "DATABRICKS_HOST": "https://x.azuredatabricks.net",
+        }):
+            s = Settings()  # type: ignore[call-arg]
+
+        assert s.purview_tenant_id == "legacy-t"
+        assert s.purview_client_id == "legacy-c"
+        assert s.purview_client_secret == "legacy-s"
 
 
 # ──────────────────────────────────────────
