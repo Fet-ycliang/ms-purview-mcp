@@ -133,11 +133,24 @@ jobs:
             echo "::warning::workflow env AZURE_SUBSCRIPTION_ID 目前不是 GUID。Service principal secret login 仍會嘗試用 az account set 處理，但若要走 OIDC，建議改成 Azure Subscription GUID。"
           fi
 
-      - name: Azure login (AZURE_CREDENTIALS)
+      - name: Azure CLI login (AZURE_CREDENTIALS)
         if: ${{ env.AZURE_LOGIN_MODE == 'azure-credentials' }}
-        uses: azure/login@v2
-        with:
-          creds: ${{ env.AZURE_CREDENTIALS_JSON }}
+        run: |
+          set -euo pipefail
+
+          AZURE_CLIENT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientId\"])')"
+          AZURE_CLIENT_SECRET="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientSecret\"])')"
+          AZURE_TENANT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"tenantId\"])')"
+
+          az login \
+            --service-principal \
+            --username "$AZURE_CLIENT_ID" \
+            --password "$AZURE_CLIENT_SECRET" \
+            --tenant "$AZURE_TENANT_ID" \
+            --output none
+
+          az account set --subscription "${{ env.AZURE_SUBSCRIPTION_ID }}"
+          az account show --query "{name:name,id:id}" -o table
 
       - name: Azure login (OIDC)
         if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
@@ -237,11 +250,24 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Azure login (AZURE_CREDENTIALS)
+      - name: Azure CLI login (AZURE_CREDENTIALS)
         if: ${{ env.AZURE_LOGIN_MODE == 'azure-credentials' }}
-        uses: azure/login@v2
-        with:
-          creds: ${{ env.AZURE_CREDENTIALS_JSON }}
+        run: |
+          set -euo pipefail
+
+          AZURE_CLIENT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientId\"])')"
+          AZURE_CLIENT_SECRET="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientSecret\"])')"
+          AZURE_TENANT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"tenantId\"])')"
+
+          az login \
+            --service-principal \
+            --username "$AZURE_CLIENT_ID" \
+            --password "$AZURE_CLIENT_SECRET" \
+            --tenant "$AZURE_TENANT_ID" \
+            --output none
+
+          az account set --subscription "${{ env.AZURE_SUBSCRIPTION_ID }}"
+          az account show --query "{name:name,id:id}" -o table
 
       - name: Azure login (OIDC)
         if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
@@ -292,11 +318,23 @@ jobs:
         env:
           DEPLOY_IMAGE: ${{ needs.build-and-push.outputs.deploy_image }}
         run: |
-          az containerapp update \
-            --name "${{ env.ACA_NAME }}" \
-            --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
-            --image "$DEPLOY_IMAGE" \
-            --output none
+          for attempt in $(seq 1 3); do
+            if az containerapp update \
+              --name "${{ env.ACA_NAME }}" \
+              --resource-group "${{ env.ACA_RESOURCE_GROUP }}" \
+              --image "$DEPLOY_IMAGE" \
+              --output none; then
+              break
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::az containerapp update 連續 3 次失敗"
+              exit 1
+            fi
+
+            echo "::warning::az containerapp update 第 ${attempt} 次失敗，15 秒後重試"
+            sleep 15
+          done
 
           LATEST_REVISION=$(az containerapp show \
             --name "${{ env.ACA_NAME }}" \
