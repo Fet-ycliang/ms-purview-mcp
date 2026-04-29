@@ -92,25 +92,25 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 | `AZURE_DEPLOY_CLIENT_ID` | **建議使用**。GitHub 部署專用的 Service Principal Client ID |
 | `AZURE_DEPLOY_TENANT_ID` | **建議使用**。GitHub 部署專用 tenant ID |
 | `AZURE_DEPLOY_CLIENT_SECRET` | **建議使用**。GitHub 部署專用 secret；若保留此 secret，workflow 會走 service principal secret login |
-| `PURVIEW_TENANT_ID` | 選用。若 GitHub job 需要直接拿 Purview token，使用這組 runtime tenant |
-| `PURVIEW_CLIENT_ID` | 選用。Purview runtime client ID |
-| `PURVIEW_CLIENT_SECRET` | 選用。Purview runtime client secret |
+
+> 目前 GitHub **deploy workflow 不會再讀取** `PURVIEW_*` / `DATABRICKS_*`。這些是 **azd provision / ACA runtime / 本機 `.env`** 用的執行期設定，不是 rollout image 時要重新提供的 secrets。
+>
+> workflow 仍保留 `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` 作為 **legacy fallback**，避免現有設定立刻失效。但要處理 cross-tenant，請改用 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離。
+
+#### `.env` / azd env / ACA runtime 對照
+
+| 本機 `.env` / azd env | 用途 |
+|-----------------------|------|
+| `PURVIEW_TENANT_ID` | Purview runtime tenant |
+| `PURVIEW_CLIENT_ID` | Purview runtime client |
+| `PURVIEW_CLIENT_SECRET` | Purview runtime secret |
+| `PURVIEW_ACCOUNT_NAME` | Purview account name |
+| `DATABRICKS_HOST` | Databricks workspace URL |
 | `DATABRICKS_TOKEN` | Databricks PAT |
+| `UC_DEFAULT_CATALOG` | 預設 catalog |
+| `UC_CATALOGS` | 多 catalog 清單，格式 `prod_catalog,dev_catalog` |
 
-> 目前 workflow 仍保留 `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` 作為 **legacy fallback**，避免現有設定立刻失效。但要處理 cross-tenant，請改用 `AZURE_DEPLOY_*` 與 `PURVIEW_*` 分離。
-
-#### `.env` 與 CI 變數對照
-
-| 本機 `.env` | GitHub 設定 |
-|-------------|-------------|
-| `PURVIEW_TENANT_ID` | `PURVIEW_TENANT_ID` secret |
-| `PURVIEW_CLIENT_ID` | `PURVIEW_CLIENT_ID` secret |
-| `PURVIEW_CLIENT_SECRET` | `PURVIEW_CLIENT_SECRET` secret |
-| `PURVIEW_ACCOUNT_NAME` | `PURVIEW_ACCOUNT_NAME` variable |
-| `DATABRICKS_HOST` | `DATABRICKS_HOST` variable |
-| `DATABRICKS_TOKEN` | `DATABRICKS_TOKEN` secret |
-| `UC_DEFAULT_CATALOG` | 目前 workflow 未使用，可保留本機設定 |
-| `UC_CATALOGS` | 目前 workflow 未使用；若未來要加，請用 `prod_catalog,dev_catalog` 格式 |
+> 這些值在 **azd provision** 時會寫進 ACA container env；後續 GitHub Actions 做的是 **image rollout**，不會在每次 deploy 時重設一次。
 
 #### Cross-tenant 建議切法
 
