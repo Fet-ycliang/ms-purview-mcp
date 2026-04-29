@@ -186,7 +186,7 @@ class TestModels:
             "PURVIEW_TENANT_ID": "t", "PURVIEW_CLIENT_ID": "c",
             "PURVIEW_CLIENT_SECRET": "s", "PURVIEW_ACCOUNT_NAME": "myaccount",
             "DATABRICKS_HOST": "https://x.azuredatabricks.net",
-        }):
+        }, clear=True):
             s = S()
             assert s.purview_base_url == "https://myaccount.purview.azure.com"
             assert s.purview_tenant_id == "t"
@@ -200,7 +200,7 @@ class TestModels:
             "AZURE_TENANT_ID": "legacy-t", "AZURE_CLIENT_ID": "legacy-c",
             "AZURE_CLIENT_SECRET": "legacy-s", "PURVIEW_ACCOUNT_NAME": "myaccount",
             "DATABRICKS_HOST": "https://x.azuredatabricks.net",
-        }):
+        }, clear=True):
             s = S()
             assert s.purview_tenant_id == "legacy-t"
             assert s.purview_client_id == "legacy-c"

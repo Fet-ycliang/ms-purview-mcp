@@ -42,13 +42,17 @@ def settings():
 class TestSettingsUnit:
     def test_prefers_purview_env_names(self):
         """UT-00: Settings 會優先讀取 PURVIEW_* 環境變數"""
-        with patch.dict("os.environ", {
-            "PURVIEW_TENANT_ID": "purview-t",
-            "PURVIEW_CLIENT_ID": "purview-c",
-            "PURVIEW_CLIENT_SECRET": "purview-s",
-            "PURVIEW_ACCOUNT_NAME": "myaccount",
-            "DATABRICKS_HOST": "https://x.azuredatabricks.net",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "PURVIEW_TENANT_ID": "purview-t",
+                "PURVIEW_CLIENT_ID": "purview-c",
+                "PURVIEW_CLIENT_SECRET": "purview-s",
+                "PURVIEW_ACCOUNT_NAME": "myaccount",
+                "DATABRICKS_HOST": "https://x.azuredatabricks.net",
+            },
+            clear=True,
+        ):
             s = Settings()  # type: ignore[call-arg]
 
         assert s.purview_base_url == "https://myaccount.purview.azure.com"
@@ -58,13 +62,17 @@ class TestSettingsUnit:
 
     def test_legacy_azure_env_names_still_work(self):
         """UT-00b: legacy AZURE_* 仍可作為 Purview 認證來源"""
-        with patch.dict("os.environ", {
-            "AZURE_TENANT_ID": "legacy-t",
-            "AZURE_CLIENT_ID": "legacy-c",
-            "AZURE_CLIENT_SECRET": "legacy-s",
-            "PURVIEW_ACCOUNT_NAME": "myaccount",
-            "DATABRICKS_HOST": "https://x.azuredatabricks.net",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "AZURE_TENANT_ID": "legacy-t",
+                "AZURE_CLIENT_ID": "legacy-c",
+                "AZURE_CLIENT_SECRET": "legacy-s",
+                "PURVIEW_ACCOUNT_NAME": "myaccount",
+                "DATABRICKS_HOST": "https://x.azuredatabricks.net",
+            },
+            clear=True,
+        ):
             s = Settings()  # type: ignore[call-arg]
 
         assert s.purview_tenant_id == "legacy-t"
