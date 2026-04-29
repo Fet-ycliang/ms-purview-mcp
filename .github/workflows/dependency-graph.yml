@@ -1,0 +1,31 @@
+name: Update dependency graph
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pyproject.toml
+      - uv.lock
+  schedule:
+    - cron: '27 6 * * 1'  # 每週一 06:27 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  submit:
+    name: Submit uv dependency snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Export runtime dependencies to requirements format
+        run: uv export --no-dev -o /tmp/requirements.txt
+
+      - name: Submit dependency graph
+        uses: advanced-security/python-dependency-submission-action@v1
+        with:
+          pip-requirements-file: /tmp/requirements.txt
