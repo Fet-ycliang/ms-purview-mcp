@@ -158,7 +158,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 參考 AuroraOps 的 ACR / ACA 自動上版模式：
 
-- `develop`：**不觸發** GitHub deploy workflow；unit tests 改由 **local commit 前** 的 pre-commit hook 執行
+- `develop`：**不觸發** GitHub deploy workflow；unit tests 改由 **local push 到 main 前** 的 pre-push hook 執行
 - `main` push：建置 image，並自動 `az containerapp update` rollout `ms-purview-mcp-ca`
 - 這支 workflow 現在是 **純 deploy pipeline**，不在 build 前執行 unit tests
 - Azure 登入採多模式 fallback：
@@ -170,7 +170,7 @@ Workflow 路徑：`.github/workflows/deploy-purview-mcp-aca.yml`
 - `main` rollout 使用同次 build 產出的日期版 image tag，並等待：
   - `latestRevisionName == latestReadyRevisionName`
   - ACA 目前 container image 已切到本次部署 image
-- 建議在本機安裝 Git pre-commit hook：共用腳本放在 `scripts/pre-commit`，複製到 `.git/hooks/pre-commit` 後，可在 **local commit 前** 自動執行 `python -m pytest tests/ -m "not e2e" -v --tb=short`
+- 建議在本機安裝 Git pre-push hook：共用腳本放在 `scripts/pre-push`，複製到 `.git/hooks/pre-push` 後，可在 **push 到 `main` 前** 自動執行 `python -m pytest tests/ -m "not e2e" -v --tb=short`
 
 Image naming：
 
@@ -188,10 +188,10 @@ Image naming：
 
 ## 已知陷阱
 
-- 先把 workflow 邊界講清楚：**develop = local pre-commit 測試，main = build / push + rollout ACA**。這支 workflow 是 deploy pipeline，不是純 CI
+- 先把 workflow 邊界講清楚：**develop = 不自動跑 deploy，push main 前由 local pre-push 測試，main = build / push + rollout ACA**。這支 workflow 是 deploy pipeline，不是純 CI
 - `AZURE_CREDENTIALS` 主路徑改用 **Azure CLI login** 後，比直接走 `azure/login` 更穩；主要不是功能差異，而是可避開 deploy 主流程持續出現的 Node 20 action 警告
 - `az containerapp update` 若遇到 Azure Resource Manager 暫時性 503，Azure CLI 可能把 HTML 錯誤頁誤判成 JSON，最後噴出 `JSONDecodeError`；這通常不是憑證錯或 image 錯，應優先用 retry 吸收
-- deploy workflow 已改成 **直接 bypass unit tests**，避免 build 太晚才被 runner / 內網環境卡住；unit tests 請在 **local commit 前** 執行，例如：`python -m pytest tests/ -m "not e2e" -v --tb=short`
+- deploy workflow 已改成 **直接 bypass unit tests**，避免 build 太晚才被 runner / 內網環境卡住；unit tests 請在 **local push 到 `main` 前** 執行，例如：`python -m pytest tests/ -m "not e2e" -v --tb=short`
 - GitHub Actions 目前讀的是 **Repository-level** Variables / Secrets；若 GitHub UI 要求先建立 `Environment Name`，代表你進到 Environment 層級，不是本 workflow 使用的位置
 - 目前 GitHub deploy workflow 只需要 **`AZURE_CREDENTIALS` 這一個 secret**；`PURVIEW_ACCOUNT_NAME`、`DATABRICKS_HOST`、`DATABRICKS_TOKEN` 這些 runtime 設定不應再放到 GitHub deploy workflow
 - 若 GitHub Actions 在 `azure/login` 報 `AADSTS70025`，代表目前走的是 OIDC，但 Entra App 尚未設定 GitHub federated credential。可先保留 `AZURE_DEPLOY_CLIENT_SECRET` 讓 workflow 走 service principal secret login，或補上 branch 對應的 federated credential
@@ -210,7 +210,7 @@ Image naming：
 - GitHub Actions 若直接用 `uv run` 執行測試，會依 `uv.lock` 中的來源抓套件；當 lock 內是公司 Nexus URL 時，GitHub runner 會解析失敗。CI 應改成 `uv export --frozen` 後，用 `pip --isolated -i https://pypi.org/simple` 安裝測試依賴
 - GitHub Actions runner 無法直接打公司內網 Databricks；**unit tests 不應依賴 Databricks 連線**，必須改用 mock / fake data 驗證邏輯
 - `tests/test_e2e.py` 屬於真實整合測試，依賴外部 Purview / Databricks / Entra 環境；e2e 請改在本機或手動流程執行
-- 由於 deploy workflow 只在 `main` 發動，`tests/**` 也不再列入這支 workflow 的觸發條件；test-only 變更是否正確，應在 **local commit 前** 先驗證
+- 由於 deploy workflow 只在 `main` 發動，`tests/**` 也不再列入這支 workflow 的觸發條件；test-only 變更是否正確，應在 **local push 到 `main` 前** 先驗證
 - `az containerapp update` 偶發會遇到 Azure Resource Manager 503，且 Azure CLI 會把 HTML 錯誤頁誤當 JSON 解析而爆 `JSONDecodeError`；workflow 應補 retry 吸收這種暫時性錯誤
 - `.dockerignore` 必須保留 `uv.lock` 進 build context，同時排除 `.azure` 避免 azd secrets 被送進 ACR build
 - ACR remote build 無法存取公司內網套件 proxy 時，Docker build 要改走 public PyPI；不要直接把本機/公司 proxy 設定硬改成對外版本

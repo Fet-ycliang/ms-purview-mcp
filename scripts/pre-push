@@ -4,7 +4,21 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-echo "執行 pre-commit unit tests..."
+RUN_TESTS="false"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    RUN_TESTS="true"
+    break
+  fi
+done
+
+if [ "$RUN_TESTS" != "true" ]; then
+  echo "略過 pre-push unit tests：這次 push 不包含 main。"
+  exit 0
+fi
+
+echo "偵測到 push 到 main，執行 pre-push unit tests..."
 
 if command -v uv >/dev/null 2>&1; then
   echo "使用 uv 執行 pytest。"
@@ -24,9 +38,9 @@ if [ -n "$PYTHON_CMD" ]; then
     exec "$PYTHON_CMD" -m pytest tests/ -m "not e2e" -v --tb=short
   fi
 
-  echo "錯誤: 已找到 $PYTHON_CMD，但目前環境沒有 pytest。請先安裝 dev 依賴，或安裝 uv 後再 commit。" >&2
+  echo "錯誤: 已找到 $PYTHON_CMD，但目前環境沒有 pytest。請先安裝 dev 依賴，或安裝 uv 後再 push main。" >&2
   exit 1
 fi
 
-echo "錯誤: 找不到 uv、python 或 python3，無法在 commit 前執行 unit tests。" >&2
+echo "錯誤: 找不到 uv、python 或 python3，無法在 push main 前執行 unit tests。" >&2
 exit 1
