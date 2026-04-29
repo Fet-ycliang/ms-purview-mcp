@@ -1,8 +1,8 @@
 name: Build & Deploy purview-mcp
 
 # 參考 AuroraOps 的 ACR / ACA 自動上版模式：
-# - develop push：自動建置並推送 image 到 ACR
 # - main push：自動建置並推送 image 到 ACR，接著 rollout ACA
+# - develop：不觸發 GitHub deploy workflow，改由本機 pre-commit hook 執行 unit tests
 #
 # 前置條件：
 # 1. Service Principal 需能操作 ACR 與 ACA
@@ -21,7 +21,6 @@ on:
   push:
     branches:
       - main
-      - develop
     paths:
       - .github/workflows/deploy-purview-mcp-aca.yml
       - .dockerignore
@@ -29,7 +28,6 @@ on:
       - pyproject.toml
       - uv.lock
       - src/purview_mcp/**
-      - tests/**
   workflow_dispatch:
     inputs:
       reason:
@@ -66,6 +64,7 @@ jobs:
   build-and-push:
     name: Build & Push to ACR
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     outputs:
       tag_latest: ${{ steps.tags.outputs.tag_latest }}
       tag_dated: ${{ steps.tags.outputs.tag_dated }}
@@ -81,24 +80,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install test dependencies
-        run: |
-          uv export \
-            --frozen \
-            --group dev \
-            --no-hashes \
-            --no-emit-project \
-            --output-file requirements-ci.txt
-          python -m pip install --upgrade pip
-          python -m pip install --isolated -i https://pypi.org/simple -r requirements-ci.txt
-          python -m pip install --isolated -i https://pypi.org/simple --no-deps -e .
-
-      - name: Run tests
-        run: python -m pytest tests/ -m "not e2e" -v --tb=short
 
       - name: 驗證 Azure workflow 設定
         run: |
@@ -201,17 +182,9 @@ jobs:
         run: |
           SHORT_SHA="${GITHUB_SHA:0:7}"
           DATE_TAG="$(date -u +%Y%m%d)"
-          BRANCH="${GITHUB_REF_NAME}"
-
-          if [ "$BRANCH" = "main" ]; then
-            echo "tag_latest=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
-            echo "tag_dated=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DATE_TAG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag_latest=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:develop" >> "$GITHUB_OUTPUT"
-            echo "tag_dated=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${DATE_TAG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            echo "image_tag=develop" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag_latest=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+          echo "tag_dated=${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DATE_TAG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=latest" >> "$GITHUB_OUTPUT"
 
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "date_tag=${DATE_TAG}" >> "$GITHUB_OUTPUT"
@@ -237,11 +210,7 @@ jobs:
           echo "| Image (穩定 tag) | \`${{ steps.tags.outputs.tag_latest }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Image (時間 tag) | \`${{ steps.tags.outputs.tag_dated }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "> **ACA 更新**：此 workflow 會自動 rollout 到 \`${{ env.ACA_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "> **ACA 更新**：develop 只建 image，不自動 rollout ACA" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "> **ACA 更新**：此 workflow 會自動 rollout 到 \`${{ env.ACA_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy-aca:
     name: Rollout ACA
