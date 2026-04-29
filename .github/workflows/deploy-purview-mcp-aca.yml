@@ -138,9 +138,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          AZURE_CLIENT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientId\"])')"
-          AZURE_CLIENT_SECRET="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientSecret\"])')"
-          AZURE_TENANT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"tenantId\"])')"
+          AZURE_CLIENT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ["AZURE_CREDENTIALS_JSON"])["clientId"])')"
+          AZURE_CLIENT_SECRET="$(python3 -c 'import json, os; print(json.loads(os.environ["AZURE_CREDENTIALS_JSON"])["clientSecret"])')"
+          AZURE_TENANT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ["AZURE_CREDENTIALS_JSON"])["tenantId"])')"
 
           az login \
             --service-principal \
@@ -255,9 +255,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          AZURE_CLIENT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientId\"])')"
-          AZURE_CLIENT_SECRET="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"clientSecret\"])')"
-          AZURE_TENANT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ[\"AZURE_CREDENTIALS_JSON\"])[\"tenantId\"])')"
+          AZURE_CLIENT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ["AZURE_CREDENTIALS_JSON"])["clientId"])')"
+          AZURE_CLIENT_SECRET="$(python3 -c 'import json, os; print(json.loads(os.environ["AZURE_CREDENTIALS_JSON"])["clientSecret"])')"
+          AZURE_TENANT_ID="$(python3 -c 'import json, os; print(json.loads(os.environ["AZURE_CREDENTIALS_JSON"])["tenantId"])')"
 
           az login \
             --service-principal \
