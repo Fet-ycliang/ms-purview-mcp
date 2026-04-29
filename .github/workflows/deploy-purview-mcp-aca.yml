@@ -49,6 +49,7 @@ concurrency:
 env:
   PYTHON_VERSION: '3.12'
   AZURE_CORE_OUTPUT: none
+  AZURE_LOGIN_MODE: ${{ secrets.AZURE_CLIENT_SECRET != '' && 'client-secret' || 'oidc' }}
   ACR_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
   ACR_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY_ENDPOINT != '' && vars.AZURE_CONTAINER_REGISTRY_ENDPOINT || format('{0}.azurecr.io', vars.AZURE_CONTAINER_REGISTRY_NAME) }}
   ACA_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
@@ -125,7 +126,7 @@ jobs:
           fi
 
       - name: Azure login (OIDC)
-        if: ${{ secrets.AZURE_CLIENT_SECRET == '' }}
+        if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -133,7 +134,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login (Service Principal secret)
-        if: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+        if: ${{ env.AZURE_LOGIN_MODE == 'client-secret' }}
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -205,7 +206,7 @@ jobs:
 
     steps:
       - name: Azure login (OIDC)
-        if: ${{ secrets.AZURE_CLIENT_SECRET == '' }}
+        if: ${{ env.AZURE_LOGIN_MODE == 'oidc' }}
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -213,7 +214,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login (Service Principal secret)
-        if: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+        if: ${{ env.AZURE_LOGIN_MODE == 'client-secret' }}
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
