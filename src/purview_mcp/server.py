@@ -142,6 +142,34 @@ async def check_field_compliance(field_names: list[str]) -> str:
 
 
 @mcp.tool()
+async def check_field_compliance_detailed(field_names: list[str]) -> str:
+    """
+    詳細檢查欄位名稱是否符合企業詞彙規範，包含建議改名。
+
+    - field_names: 待檢查的欄位名稱清單，如 ['customer_id', 'order_dt']
+
+    回傳 JSON 格式的結果，每個欄位包含：
+    - compliant: true/false
+    - suggestion: 建議改名（如適用）
+    - matched_term: 對應的企業詞彙（如適用）
+    """
+    results = await glossary.check_field_compliance_detailed(_settings(), field_names)
+
+    # 轉成 JSON 格式回傳
+    output_data = [
+        {
+            "field_name": r.field_name,
+            "compliant": r.compliant,
+            "suggestion": r.suggestion,
+            "matched_term": r.matched_term,
+        }
+        for r in results
+    ]
+
+    return json.dumps(output_data, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
 async def check_pii_labels(
     qualified_name: str,
     entity_type: str = "databricks_table",

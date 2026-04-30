@@ -22,7 +22,7 @@
                 <return-response>
                     <set-status code="401" reason="Unauthorized" />
                     <set-header name="WWW-Authenticate" exists-action="override">
-                        <value>Bearer realm="mcp", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                        <value>Bearer realm="mcp", resource_metadata="{{APIMGatewayURL}}/ms-purview-mcp/.well-known/oauth-protected-resource"</value>
                     </set-header>
                 </return-response>
             </when>
@@ -121,7 +121,7 @@
                 <return-response>
                     <set-status code="403" reason="Forbidden" />
                     <set-header name="WWW-Authenticate" exists-action="override">
-                        <value>Bearer error="insufficient_scope", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                        <value>Bearer error="insufficient_scope", resource_metadata="{{APIMGatewayURL}}/ms-purview-mcp/.well-known/oauth-protected-resource"</value>
                     </set-header>
                     <set-body>Access token must contain delegated scope 'mcp.access' (or legacy 'user_impersonation') or application role 'access_as_application'.</set-body>
                 </return-response>
@@ -191,7 +191,7 @@
         <choose>
             <when condition="@(context.Response != null &amp;&amp; context.Response.StatusCode == 401)">
                 <set-header name="WWW-Authenticate" exists-action="override">
-                    <value>Bearer realm="mcp", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                    <value>Bearer realm="mcp", resource_metadata="{{APIMGatewayURL}}/ms-purview-mcp/.well-known/oauth-protected-resource"</value>
                 </set-header>
             </when>
         </choose>
@@ -203,7 +203,7 @@
                 <return-response>
                     <set-status code="401" reason="Unauthorized" />
                     <set-header name="WWW-Authenticate" exists-action="override">
-                        <value>Bearer realm="mcp", resource_metadata="{{McpOAuthBaseUrl}}/.well-known/oauth-protected-resource"</value>
+                        <value>Bearer realm="mcp", resource_metadata="{{APIMGatewayURL}}/ms-purview-mcp/.well-known/oauth-protected-resource"</value>
                     </set-header>
                 </return-response>
             </when>

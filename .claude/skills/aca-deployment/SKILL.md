@@ -15,7 +15,7 @@ description: |
 ```
 Claude Code / Databricks
         ↓ HTTPS + OAuth
-    APIM（現有，API path: /purview-mcp）
+    APIM（現有，API path: /ms-purview-mcp）
         ↓
     ACA ms-purview-mcp-ca（external ingress, port 8080）
         ↓
@@ -31,7 +31,9 @@ Claude Code / Databricks
 | `infra/main.bicep` | Bicep 主檔（resourceGroup scope）|
 | `infra/resources.bicep` | Container App + Managed Identity 定義 |
 | `infra/main.parameters.json` | 部署參數（含環境變數映射）|
-| `infra/modules/mcp-api.bicep` | APIM API 定義（Phase 3）|
+| `infra/modules/ms-purview-mcp-apim-api.bicep` | APIM API 定義（Phase 3）|
+| `infra/modules/ms-purview-mcp-api.policy.xml` | APIM API 層級策略（JWT 驗證 + MI token 注入）|
+| `infra/modules/ms-purview-mcp-prm.policy.xml` | PRM 操作策略（回傳 RFC 9728 resource metadata）|
 | `.github/workflows/deploy-purview-mcp-aca.yml` | CI/CD workflow |
 
 ## 環境變數清單
@@ -103,11 +105,13 @@ curl -X POST https://<aca-fqdn>/mcp \
 ### 事前確認（必做，避免影響 outlook-email）
 
 ```bash
-# 讀取現有 APIM 所有 APIs
-az apim api list --resource-group <rg> --service-name <apim> -o table
+# 先找出 APIM 所屬 resource group（不能靠 service name 猜）
+az apim list --query "[?contains(name,'apim-fet')].{name:name, rg:resourceGroup}" -o table
+# 確認結果：apim-app-bst-rg（不是 rg-fet-outlook-email）
 
-# 確認現有 Named Values（避免命名衝突）
-az apim nv list --resource-group <rg> --service-name <apim> -o table
+# 確認現有 APIs 和 Named Values（避免命名衝突）
+az apim api list --resource-group apim-app-bst-rg --service-name apim-fet-outlook-email -o table
+az apim nv list  --resource-group apim-app-bst-rg --service-name apim-fet-outlook-email -o table
 ```
 
 ### Entra ID App 註冊（手動）
@@ -123,34 +127,43 @@ az apim nv list --resource-group <rg> --service-name <apim> -o table
 ### azd APIM 部署
 
 ```bash
+azd env set AZURE_DEPLOY_APIM_MCP_API true
 azd env set AZURE_APIM_NAME <apim-name>
-azd env set MCP_APIM_RESOURCE_TENANT_ID <tenant>
-azd env set MCP_APIM_RESOURCE_CLIENT_ID <client-id>
-azd env set MCP_CLAUDE_CLIENT_ID <claude-client-id>
-azd deploy
+azd provision
 ```
+
+> 目前這個 repo 的 APIM Phase 3 是**追加 `purview-mcp` API 到既有 APIM service**，不是重建另一套 `mcp-oauth`。  
+> 若 `outlook-email` 那套 MCP / OAuth facade 已經正常，`purview-mcp` 會直接複用既有 Named Values，並沿用 `mcp-oauth` 的 authorize / token / register 端點。
 
 ### APIM expose 建議
 
-建議只 expose 一組 Purview MCP API：
+`ms-purview-mcp` API 只 expose 3 個 operation（OAuth 端點全部由 `mcp-oauth` API 負責）：
 
-- `GET /purview-mcp/mcp`
-- `POST /purview-mcp/mcp`
-- `GET /purview-mcp/.well-known/oauth-protected-resource`
+| Operation ID | Method | Path |
+|---|---|---|
+| ms-purview-mcp-streamable-get  | GET  | `/ms-purview-mcp/mcp` |
+| ms-purview-mcp-streamable-post | POST | `/ms-purview-mcp/mcp` |
+| ms-purview-mcp-prm             | GET  | `/ms-purview-mcp/.well-known/oauth-protected-resource` |
 
-兩條流量共用同一組 APIM policy：
+兩條流量共用同一組 API-level policy：
 
 1. Databricks remote MCP：application token，要求 `access_as_application`
 2. Claude Code browser flow：delegated token，要求 `mcp.access`（相容 `user_impersonation`）
 
-目前 repo 內的 `purview-mcp-api.policy.xml` 已包含：
+`infra/modules/ms-purview-mcp-api.policy.xml` 包含：
 
-- caller JWT 驗證
+- caller JWT 驗證（`validate-jwt` + openid-config from Entra）
 - delegated / application token 分流
 - `McpAllowedCallerAppIdsCsv` allowlist
-- APIM managed identity 對 backend 重新取 token
+- APIM managed identity 對 backend 重新取 token（`authentication-managed-identity`）
 
-若最終要把 APIM 作為唯一入口，ACA 需要再收斂成 internal/private ingress，或至少補上額外網路限制，否則仍可能繞過 APIM 直打 ACA FQDN。
+已驗證的 APIM 行為：
+
+- `GET /ms-purview-mcp/.well-known/oauth-protected-resource` 回傳 PRM，`authorization_servers` 指向 `{{APIMGatewayURL}}/ms-purview-mcp-oauth`
+- 未帶 token 呼叫 `GET/POST /ms-purview-mcp/mcp` 會回 `401`，WWW-Authenticate 指向 PRM
+- `oauth-authorization-server`、`openid-configuration`、`/authorize`、`/token`、`/register` **不在此 API**，由 `mcp-oauth` API 提供
+
+若最終要把 APIM 作為唯一入口，ACA 需要收斂成 internal/private ingress，否則仍可能繞過 APIM 直打 ACA FQDN。
 
 ## CI/CD（GitHub Actions）
 

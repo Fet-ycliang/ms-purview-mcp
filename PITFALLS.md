@@ -187,3 +187,83 @@ days = (now_ms - last_altered_ms) / (1000 * 60 * 60 * 24)
 # 錯誤（少除 1000，天數會差 1000 倍）
 # days = (now_ms - last_altered_ms) / (60 * 60 * 24)
 ```
+
+---
+
+## Azure CLI / APIM 操作
+
+### 14. `az apim api policy` 指令不存在
+
+```bash
+# 錯誤：此子指令不存在
+az apim api policy show ...
+
+# 正確：改走 ARM REST API
+az rest --method GET \
+  --uri "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ApiManagement/service/<apim>/apis/<api>/policies/policy?api-version=2022-08-01&format=rawxml" \
+  --output-file policy.json
+```
+
+---
+
+### 15. `az rest` 在 Windows 上回傳含 BOM 的 XML 會炸 cp950
+
+APIM policy 的 `rawxml` 回應包含 UTF-8 BOM（`﻿`），Windows 預設 cp950 無法處理，
+直接加 `--query` 或 `-o tsv` 會噴 `UnicodeEncodeError`：
+
+```bash
+# 錯誤：在 Windows bash 直接輸出 XML 到 stdout
+az rest --uri "..." --query "properties.value" -o tsv
+
+# 正確：一律用 --output-file 寫到磁碟，再用 Python utf-8-sig 讀取
+az rest --uri "..." --output-file policy.json
+python3 -c "
+import json
+with open('policy.json', encoding='utf-8-sig') as f:
+    print(json.load(f)['properties']['value'])
+"
+```
+
+---
+
+### 16. Windows bash 沒有 `/tmp/`，暫存檔要用絕對路徑
+
+```bash
+# 錯誤：/tmp/ 在 Windows 不存在
+az rest --output-file /tmp/result.json
+
+# 正確：用專案目錄或 Windows 絕對路徑
+az rest --output-file "D:/azure_code/ms-purview-mcp/result.json"
+# 用完再刪
+```
+
+---
+
+### 17. APIM resource group 不能靠 service name 推測，要先查
+
+APIM service name（`apim-fet-outlook-email`）與 resource group（`apim-app-bst-rg`）
+名稱沒有關係，不要猜：
+
+```bash
+# 正確：先查出 APIM 所屬的 resource group
+az apim list --query "[?contains(name,'apim-fet')].{name:name, rg:resourceGroup}" -o table
+# 結果：apim-app-bst-rg（不是 rg-fet-outlook-email）
+```
+
+---
+
+### 18. ms-purview-mcp APIM 只有 3 個 operation，OAuth 端點完全交給 mcp-oauth
+
+曾在 Bicep 定義了 8 個 operation（含 authorize / token / register / oauth-authorization-server / openid-configuration），
+但 APIM 上實際只部署 3 個：
+
+| Operation | Method | Path |
+|-----------|--------|------|
+| ms-purview-mcp-streamable-get  | GET  | `/mcp` |
+| ms-purview-mcp-streamable-post | POST | `/mcp` |
+| ms-purview-mcp-prm             | GET  | `/.well-known/oauth-protected-resource` |
+
+授權流程（authorize / token / register）及 discovery metadata
+（oauth-authorization-server / openid-configuration）完全由 `mcp-oauth` API 負責。
+**PRM 的 `authorization_servers` 應指向 `{{APIMGatewayURL}}/ms-purview-mcp-oauth`，
+不是 `ms-purview-mcp` 自身。**
