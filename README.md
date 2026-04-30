@@ -19,19 +19,20 @@ cp .env.example .env
 
 ### 3. 掛載到 Claude Code
 
-將以下設定加入 `~/.claude/settings.json`（或專案的 `.claude/settings.json`）：
+若要比照 `outlook-email` 走 **APIM + OAuth browser flow**，可將以下設定加入 `~/.claude/settings.json`（或專案根目錄的 `.mcp.json`）：
 
 ```json
 {
   "mcpServers": {
     "purview": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "purview_mcp.server"],
-      "cwd": "D:/azure_code/Purview"
+      "type": "http",
+      "url": "https://apim-fet-outlook-email.azure-api.net/purview-mcp/mcp"
     }
   }
 }
 ```
+
+若要改回本機開發模式，再使用 stdio / `uv run python -m purview_mcp.server` 的設定即可。
 
 ### 4. 驗證 MCP Server（可選）
 
@@ -163,6 +164,33 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 
 ## APIM expose 建議
 
+目前這個 repo 的 APIM 整合模式是：
+
+- **沿用既有正常運作的** `mcp-oauth` / 共用 Named Values
+- **只追加** `purview-mcp` 這組 API path 與 policy
+- 不在 `purview-mcp` 這個 repo 內重建另一套 OAuth facade
+
+若 APIM 上既有的 MCP / OAuth facade 已正常，可直接：
+
+```bash
+azd env set AZURE_DEPLOY_APIM_MCP_API true
+azd env set AZURE_APIM_NAME apim-fet-outlook-email
+azd provision
+```
+
+`azd provision` 完成後，會在既有 APIM service 內新增 `purview-mcp` API，並複用原本的：
+
+- `mcp-oauth` authorize / token / register endpoints
+- `McpTenantId`、`McpClientId`、`McpAppIdUri`
+- `BackendMcpClientId`、`BackendMcpAppIdUri`
+- `McpAllowedCallerAppIdsCsv`
+
+同時，`purview-mcp` 會自己提供：
+
+- `GET /purview-mcp/.well-known/oauth-protected-resource`
+- `GET /purview-mcp/.well-known/oauth-authorization-server`
+- `GET /purview-mcp/.well-known/openid-configuration`
+
 建議維持 **單一路徑**：
 
 - `GET /purview-mcp/mcp`
@@ -180,6 +208,15 @@ Workflow：`.github/workflows/deploy-purview-mcp-aca.yml`
 - 區分 delegated / application token
 - 用 `McpAllowedCallerAppIdsCsv` 限制允許的 caller app
 - APIM 再用 managed identity 對 ACA backend 取 token 並轉送
+
+目前已實測：
+
+- `GET /purview-mcp/.well-known/oauth-protected-resource` 會正確回 `resource=https://<apim>/purview-mcp/mcp`
+- 未帶 token 呼叫 `GET/POST /purview-mcp/mcp` 會回 `401`，並帶 `WWW-Authenticate: Bearer ... resource_metadata=.../purview-mcp/.well-known/oauth-protected-resource`
+- 該 `resource_metadata` 文件本身會宣告 `authorization_servers=["https://<apim>/purview-mcp"]`，避免 SDK 誤把舊服務 `/mcp` 當成新服務的 protected resource
+- `GET /purview-mcp/.well-known/oauth-authorization-server` 與 `GET /purview-mcp/.well-known/openid-configuration` 皆正常
+- `GET /purview-mcp/.well-known/oauth-authorization-server` 回傳的 `authorization_endpoint` / `token_endpoint` / `registration_endpoint` 仍會導向既有 `mcp-oauth`
+- `GET /mcp-oauth/authorize` 會要求 PKCE；補上 `code_challenge` 後，會正確 redirect 到 Entra `/authorize`
 
 如果要讓 `Databricks / Claude Code -> APIM -> ACA` 成為**唯一正式入口**，下一步要把 ACA ingress 改成 private/internal，或加上額外 network / auth 限制。否則知道 ACA FQDN 的流量仍可繞過 APIM。
 

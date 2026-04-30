@@ -1,0 +1,31 @@
+<policies>
+    <inbound>
+        <!-- 直接實作 dynamic client registration，不 proxy 到 mcp-oauth -->
+        <!-- 回傳 {{McpClaudeClientId}} 作為 client_id（Claude public client），mcp-oauth/authorize 會驗證此值 -->
+        <return-response>
+            <set-status code="201" reason="Created" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                var body = context.Request.Body.As<JObject>(preserveContent: true) ?? new JObject();
+                body["client_id"] = "{{McpClaudeClientId}}";
+                body["client_id_issued_at"] = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
+                if (!body.ContainsKey("scope"))
+                {
+                    body["scope"] = "{{McpScope}} offline_access";
+                }
+                return body.ToString();
+            }</set-body>
+        </return-response>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

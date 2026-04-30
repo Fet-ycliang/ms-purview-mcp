@@ -94,8 +94,8 @@ module resources 'resources.bicep' = {
 // ── Phase 3：APIM MCP API（deployApimMcpApi=true 時部署）────────────────────
 // 警告：只新增 API，不修改既有 Named Values。在啟用前確認 existingApimName 正確。
 
-module apimMcpApi 'modules/purview-mcp-apim-api.bicep' = if (deployApimMcpApi && !empty(existingApimName)) {
-  name: 'purview-mcp-apim-api'
+module apimMcpApi 'modules/ms-purview-mcp-apim-api.bicep' = if (deployApimMcpApi && !empty(existingApimName)) {
+  name: 'ms-purview-mcp-apim-api'
   params: {
     apimServiceName: existingApimName
     backendUrl: 'https://${resources.outputs.containerAppFqdn}/'
@@ -104,4 +104,4 @@ module apimMcpApi 'modules/purview-mcp-apim-api.bicep' = if (deployApimMcpApi &&
 
 output containerAppName string = resources.outputs.containerAppName
 output containerAppFqdn string = resources.outputs.containerAppFqdn
-output apimMcpUrl string = deployApimMcpApi && !empty(existingApimName) ? 'https://${existingApimName}.azure-api.net/purview-mcp/mcp' : ''
+output apimMcpUrl string = deployApimMcpApi && !empty(existingApimName) ? 'https://${existingApimName}.azure-api.net/ms-purview-mcp/mcp' : ''

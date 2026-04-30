@@ -10,9 +10,9 @@
             </set-header>
             <set-body>@{
                 return JsonConvert.SerializeObject(new {
-                    resource = "{{APIMGatewayURL}}/purview-mcp/mcp",
+                    resource = "{{APIMGatewayURL}}/ms-purview-mcp/mcp",
                     authorization_servers = new[] {
-                        "{{McpOAuthBaseUrl}}"
+                        "{{APIMGatewayURL}}/ms-purview-mcp"
                     },
                     bearer_methods_supported = new[] {
                         "header"
