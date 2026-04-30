@@ -113,3 +113,11 @@ class UCTableInfo(BaseModel):
     columns: list[UCColumnInfo] = []
 
     model_config = {"populate_by_name": True}
+
+
+class FieldComplianceResult(BaseModel):
+    """欄位合規檢查結果。"""
+    field_name: str
+    compliant: bool
+    suggestion: Optional[str] = None
+    matched_term: Optional[str] = None
