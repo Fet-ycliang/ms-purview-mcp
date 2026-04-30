@@ -1,0 +1,31 @@
+<policies>
+    <inbound>
+        <!-- 直接實作 dynamic client registration，不 proxy 到 mcp-oauth -->
+        <!-- 回傳 {{McpClientId}} 作為 client_id，確保後續 authorize/token 流程使用正確的 Entra app -->
+        <return-response>
+            <set-status code="201" reason="Created" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                var body = context.Request.Body.As<JObject>(preserveContent: true) ?? new JObject();
+                body["client_id"] = "{{McpClientId}}";
+                body["client_id_issued_at"] = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
+                if (!body.ContainsKey("scope"))
+                {
+                    body["scope"] = "{{McpScope}} offline_access";
+                }
+                return body.ToString();
+            }</set-body>
+        </return-response>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -1,0 +1,21 @@
+<policies>
+    <inbound>
+        <!-- return-response 在 <base /> 之前執行，繞過 API-level JWT 驗證 -->
+        <!-- authorize 是簽發 token 的端點，不需要持有 token 才能呼叫 -->
+        <return-response>
+            <set-status code="302" reason="Found" />
+            <set-header name="Location" exists-action="override">
+                <value>@("{{APIMGatewayURL}}/mcp-oauth/authorize" + context.Request.OriginalUrl.QueryString)</value>
+            </set-header>
+        </return-response>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

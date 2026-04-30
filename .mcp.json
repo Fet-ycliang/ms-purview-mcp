@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "purview": {
+      "type": "http",
+      "url": "https://apim-fet-outlook-email.azure-api.net/ms-purview-mcp/mcp"
+    }
+  }
+}

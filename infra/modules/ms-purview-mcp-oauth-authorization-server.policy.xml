@@ -10,10 +10,10 @@
             </set-header>
             <set-body>@{
                 return JObject.FromObject(new {
-                    issuer = "{{APIMGatewayURL}}/purview-mcp",
-                    authorization_endpoint = "{{McpOAuthBaseUrl}}/authorize",
-                    token_endpoint = "{{McpOAuthBaseUrl}}/token",
-                    registration_endpoint = "{{McpOAuthBaseUrl}}/register",
+                    issuer = "{{APIMGatewayURL}}/ms-purview-mcp",
+                    authorization_endpoint = "{{APIMGatewayURL}}/ms-purview-mcp/authorize",
+                    token_endpoint = "{{APIMGatewayURL}}/ms-purview-mcp/token",
+                    registration_endpoint = "{{APIMGatewayURL}}/ms-purview-mcp/register",
                     jwks_uri = "https://login.microsoftonline.com/{{McpTenantId}}/discovery/v2.0/keys",
                     response_types_supported = new[] { "code" },
                     subject_types_supported = new[] { "pairwise" },
