@@ -1,7 +1,7 @@
 <policies>
     <inbound>
         <!-- 直接實作 dynamic client registration，不 proxy 到 mcp-oauth -->
-        <!-- 回傳 {{McpClientId}} 作為 client_id，確保後續 authorize/token 流程使用正確的 Entra app -->
+        <!-- 回傳 {{McpClaudeClientId}} 作為 client_id（Claude public client），mcp-oauth/authorize 會驗證此值 -->
         <return-response>
             <set-status code="201" reason="Created" />
             <set-header name="Content-Type" exists-action="override">
@@ -9,7 +9,7 @@
             </set-header>
             <set-body>@{
                 var body = context.Request.Body.As<JObject>(preserveContent: true) ?? new JObject();
-                body["client_id"] = "{{McpClientId}}";
+                body["client_id"] = "{{McpClaudeClientId}}";
                 body["client_id_issued_at"] = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
                 if (!body.ContainsKey("scope"))
                 {

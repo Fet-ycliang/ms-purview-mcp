@@ -2,14 +2,48 @@
     <inbound>
         <!-- 直接呼叫 Entra token endpoint，不 proxy 到 mcp-oauth（避免 APIM self-call 問題） -->
         <!-- token_endpoint_auth_method=none，直接轉送 PKCE token exchange 至 Entra -->
-        <set-variable name="requestBody" value="@(context.Request.Body.As&lt;string&gt;(preserveContent: true))" />
+        <!-- 剝除 resource 參數：MCP client 依 RFC 8707 送 resource=<server-url>，但 Entra v2 不支援 -->
+        <!-- resource 與 scope 的 app 不符時會回傳 AADSTS9010010；audience 驗證在 /mcp API policy 處理 -->
+        <set-variable name="tokenBody" value="@{
+            string body;
+            try
+            {
+                body = context.Request.Body.As<string>(preserveContent: true);
+            }
+            catch
+            {
+                body = string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(body))
+            {
+                return string.Empty;
+            }
+
+            var kept = new System.Collections.Generic.List<string>();
+            foreach (var pair in body.Split('&amp;'))
+            {
+                if (string.IsNullOrEmpty(pair))
+                {
+                    continue;
+                }
+                var eq = pair.IndexOf('=');
+                var key = eq >= 0 ? pair.Substring(0, eq) : pair;
+                if (string.Equals(key, &quot;resource&quot;, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                kept.Add(pair);
+            }
+            return string.Join(&quot;&amp;&quot;, kept);
+        }" />
         <send-request mode="new" response-variable-name="tokenResp" timeout="30" ignore-error="false">
             <set-url>https://login.microsoftonline.com/{{McpTenantId}}/oauth2/v2.0/token</set-url>
             <set-method>POST</set-method>
             <set-header name="Content-Type" exists-action="override">
                 <value>application/x-www-form-urlencoded</value>
             </set-header>
-            <set-body>@((string)context.Variables["requestBody"])</set-body>
+            <set-body>@((string)context.Variables["tokenBody"])</set-body>
         </send-request>
         <return-response response-variable-name="tokenResp" />
     </inbound>
