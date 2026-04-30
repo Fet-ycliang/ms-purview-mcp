@@ -12,7 +12,7 @@
                 return JsonConvert.SerializeObject(new {
                     resource = "{{APIMGatewayURL}}/ms-purview-mcp/mcp",
                     authorization_servers = new[] {
-                        "{{APIMGatewayURL}}/ms-purview-mcp"
+                        "{{APIMGatewayURL}}/ms-purview-mcp-oauth"
                     },
                     bearer_methods_supported = new[] {
                         "header"
