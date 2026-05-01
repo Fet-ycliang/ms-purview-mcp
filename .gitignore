@@ -8,3 +8,4 @@ dist/
 .gstack/
 .mcp.json
 purview-audit-workspace/
+infra/*.arm.json
