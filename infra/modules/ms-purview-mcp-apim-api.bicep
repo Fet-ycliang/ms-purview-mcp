@@ -30,11 +30,24 @@ resource msPurviewMcpApi 'Microsoft.ApiManagement/service/apis@2023-05-01-previe
   }
 }
 
-// ── API-level policy（JWT 驗證 + 後端 token 注入）─────────────────────────────
+// ── JWT 驗證 policy fragment（可跨 API 複用）──────────────────────────────────
+
+resource mcpJwtAuthFragment 'Microsoft.ApiManagement/service/policyFragments@2023-05-01-preview' = {
+  parent: apimService
+  name: 'mcp-jwt-auth'
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('mcp-jwt-auth.fragment.xml')
+    description: 'MCP JWT auth: Bearer 驗證、scope/role 檢查、Managed Identity 後端 token 注入'
+  }
+}
+
+// ── API-level policy（引用 fragment，保留 backend / outbound / on-error）────────
 
 resource msPurviewMcpApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   parent: msPurviewMcpApi
   name: 'policy'
+  dependsOn: [mcpJwtAuthFragment]
   properties: {
     format: 'rawxml'
     value: loadTextContent('ms-purview-mcp-api.policy.xml')

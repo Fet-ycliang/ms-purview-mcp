@@ -32,7 +32,8 @@ Claude Code / Databricks
 | `infra/resources.bicep` | Container App + Managed Identity 定義 |
 | `infra/main.parameters.json` | 部署參數（含環境變數映射）|
 | `infra/modules/ms-purview-mcp-apim-api.bicep` | APIM API 定義（Phase 3）|
-| `infra/modules/ms-purview-mcp-api.policy.xml` | APIM API 層級策略（JWT 驗證 + MI token 注入）|
+| `infra/modules/mcp-jwt-auth.fragment.xml` | APIM policy fragment：JWT 驗證、scope/role 檢查、MI token 注入（可跨 API 複用）|
+| `infra/modules/ms-purview-mcp-api.policy.xml` | APIM API 層級策略（引用 fragment，保留 backend / outbound / on-error）|
 | `infra/modules/ms-purview-mcp-prm.policy.xml` | PRM 操作策略（回傳 RFC 9728 resource metadata）|
 | `.github/workflows/deploy-purview-mcp-aca.yml` | CI/CD workflow |
 
@@ -150,12 +151,25 @@ azd provision
 1. Databricks remote MCP：application token，要求 `access_as_application`
 2. Claude Code browser flow：delegated token，要求 `mcp.access`（相容 `user_impersonation`）
 
-`infra/modules/ms-purview-mcp-api.policy.xml` 包含：
+`infra/modules/ms-purview-mcp-api.policy.xml` 現在只有 4 行，實際邏輯在 fragment：
+
+```xml
+<inbound>
+    <base />
+    <include-fragment fragment-id="mcp-jwt-auth" />
+</inbound>
+```
+
+`infra/modules/mcp-jwt-auth.fragment.xml`（`<fragment>` 根元素）包含：
 
 - caller JWT 驗證（`validate-jwt` + openid-config from Entra）
 - delegated / application token 分流
 - `McpAllowedCallerAppIdsCsv` allowlist
+- `X-User-Oid` / `X-User-Upn` headers 注入
 - APIM managed identity 對 backend 重新取 token（`authentication-managed-identity`）
+
+fragment 的 Bicep 資源型別：`Microsoft.ApiManagement/service/policyFragments@2023-05-01-preview`。  
+API policy 的 Bicep 資源必須加 `dependsOn: [mcpJwtAuthFragment]`，確保 fragment 先建立。
 
 已驗證的 APIM 行為：
 
@@ -230,3 +244,18 @@ Image naming：
 - APIM API path `/purview-mcp` 不能與 outlook-email 的 `/` 衝突，部署前先確認
 - Named Values 命名加 `PurviewMcp` 前綴，避免與 outlook-email 的 `Mcp*` 衝突
 - 已曝光在對話或終端的 `AZURE_CLIENT_SECRET` / `DATABRICKS_TOKEN` 等憑證，應立即輪替
+
+### APIM Policy Fragment 踩雷（2026-04-30 實證）
+
+- `az apim policy-fragment show` **命令不存在**（az CLI 尚未支援）；驗證 fragment 是否部署須改用：
+  ```bash
+  az rest --method GET \
+    --url "https://management.azure.com/subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.ApiManagement/service/<APIM>/policyFragments/<NAME>?api-version=2023-05-01-preview"
+  ```
+- APIM 傳回 XML 內容時，Windows 上 Azure CLI 會因 `cp950` 無法解碼 UTF-8 BOM 而噴 `UnicodeEncodeError`；必須用 `--output-file <path>` 寫到磁碟，再用 `encoding='utf-8-sig'` 讀取
+- Fragment XML 根元素是 `<fragment>`，**不是** `<policies>`；用錯會讓 APIM 接受但 policy 渲染失敗
+- Bicep 中 API policy 資源必須加 `dependsOn: [fragmentResource]`，確保 APIM 先建好 fragment 再套用 policy；否則 provision 偶發 404
+- `azd provision` vs `azd up`：只改 Bicep / XML 不改應用程式碼時，用 `azd provision` 即可（跳過 image rebuild），比 `azd up` 快約 3–5 分鐘
+- 驗證 API policy 是否正確引用 fragment，同樣需用 `--output-file` 搭配 `utf-8-sig`，不能直接 `--query properties.value -o tsv`
+- `python -c` 在 Windows 終端開啟 JSON 檔時必須明確指定 `encoding='utf-8'`；不指定會用系統預設 `cp950` 導致 `UnicodeDecodeError`
+- gstack browse `screenshot` 路徑必須在允許清單內（`D:\Temp` 或專案根目錄），不能寫 `C:/Temp`

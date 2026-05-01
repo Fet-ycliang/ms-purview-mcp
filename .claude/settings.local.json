@@ -68,7 +68,14 @@
       "Bash(echo \"Exit: $?\")",
       "Bash(python3 *)",
       "Bash(sort echo *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(az bicep build *)",
+      "Bash(python -c \"import json,sys; d=json.load\\(open\\('infra/main.arm.json'\\)\\); resources=[r['type'] for r in d.get\\('resources',[]\\)]; print\\('\\\\n'.join\\(resources\\)\\)\")",
+      "Bash(python *)",
+      "Bash(azd --version)",
+      "Bash(azd version *)",
+      "Bash(az apim policy-fragment show *)",
+      "Skill(gstack)"
     ]
   },
   "enableAllProjectMcpServers": true,
